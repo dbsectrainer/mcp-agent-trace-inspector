@@ -5,6 +5,20 @@ All notable changes to MCP Agent Trace Inspector will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.0.0 (2026-03-23)
+
+
+### Features
+
+* add mcpName for official MCP registry publication ([94fd9d0](https://github.com/dbsectrainer/mcp-agent-trace-inspector/commit/94fd9d08ee8bde3d0e55f96533cadd57e873caf2))
+* add server.json for official MCP registry ([48e6de7](https://github.com/dbsectrainer/mcp-agent-trace-inspector/commit/48e6de7c4251958409812cd03f94df4fd2b898d2))
+* initial release v1.0.0 ([61a4449](https://github.com/dbsectrainer/mcp-agent-trace-inspector/commit/61a444930912e68d1ab081b000921e5d174bbd44))
+
+
+### Bug Fixes
+
+* **ci:** require Node 22+ and add smithery.yaml ([5eac47e](https://github.com/dbsectrainer/mcp-agent-trace-inspector/commit/5eac47e632fdb90a1da12c724d8da290e1413f07))
+
 ## [Unreleased]
 
 ## [1.0.0] - 2026-03-23

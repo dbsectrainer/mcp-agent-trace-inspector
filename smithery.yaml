@@ -1,0 +1,29 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      dbPath:
+        type: string
+        description: "Path to SQLite database file"
+      retentionDays:
+        type: number
+        description: "Number of days to retain trace data"
+      noTokenCount:
+        type: boolean
+        description: "Disable token counting"
+      pricingTable:
+        type: string
+        description: "Path to custom pricing table JSON file"
+    required: []
+  commandFunction: |
+    (config) => ({
+      command: "node",
+      args: [
+        "dist/index.js",
+        ...(config.dbPath ? ["--db", config.dbPath] : []),
+        ...(config.retentionDays ? ["--retention-days", String(config.retentionDays)] : []),
+        ...(config.noTokenCount ? ["--no-token-count"] : []),
+        ...(config.pricingTable ? ["--pricing-table", config.pricingTable] : [])
+      ]
+    })

@@ -1,5 +1,6 @@
 {
   "name": "mcp-agent-trace-inspector",
+  "mcpName": "io.github.dbsectrainer/mcp-agent-trace-inspector",
   "version": "1.0.0",
   "description": "Step-by-step observability for MCP agent workflows",
   "author": "dbsectrainer",

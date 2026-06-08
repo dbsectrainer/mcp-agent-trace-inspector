@@ -39,7 +39,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "js-tiktoken": "^1.0.21"
+    "express": "^5.2.1",
+    "js-tiktoken": "^1.0.21",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -53,8 +55,7 @@
     "prettier": "^3.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.0",
-    "yargs": "^18.0.0"
+    "vitest": "^4.1.0"
   },
   "engines": {
     "node": ">=22.5.0"

@@ -38,23 +38,24 @@
     "format:check": "prettier --check src tests"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "js-tiktoken": "^1.0.21"
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "express": "^5.2.1",
+    "js-tiktoken": "^1.0.21",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^24.12.0",
     "@types/yargs": "^17.0.0",
-    "@typescript-eslint/eslint-plugin": "^8.57.0",
-    "@typescript-eslint/parser": "^8.57.0",
-    "@vitest/coverage-v8": "^4.1.0",
-    "eslint": "^10.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.70.1",
+    "@typescript-eslint/parser": "^8.70.1",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.11.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.8.1",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.0",
-    "yargs": "^18.0.0"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=22.5.0"

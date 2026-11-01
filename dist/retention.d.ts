@@ -1,7 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 export interface RetentionResult {
-  archived: number;
-  deleted: number;
+    archived: number;
+    deleted: number;
 }
 /**
  * Applies retention policy:
@@ -10,7 +10,4 @@ export interface RetentionResult {
  *
  * Returns counts of archived and deleted traces.
  */
-export declare function applyRetentionPolicy(
-  db: DatabaseSync,
-  retentionDays: number,
-): RetentionResult;
+export declare function applyRetentionPolicy(db: DatabaseSync, retentionDays: number): RetentionResult;

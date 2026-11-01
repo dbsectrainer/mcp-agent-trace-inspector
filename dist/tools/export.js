@@ -1,108 +1,102 @@
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { computeSummary } from "../db.js";
 function escapeHtml(str) {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 function formatDuration(ms) {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
-  const minutes = Math.floor(ms / 60000);
-  const seconds = ((ms % 60000) / 1000).toFixed(1);
-  return `${minutes}m ${seconds}s`;
+    if (ms < 1000)
+        return `${ms}ms`;
+    if (ms < 60000)
+        return `${(ms / 1000).toFixed(2)}s`;
+    const minutes = Math.floor(ms / 60000);
+    const seconds = ((ms % 60000) / 1000).toFixed(1);
+    return `${minutes}m ${seconds}s`;
 }
 function isErrorOutput(outputJson) {
-  try {
-    const parsed = JSON.parse(outputJson);
-    if (typeof parsed !== "object" || parsed === null) return false;
-    const obj = parsed;
-    if (obj.error !== undefined) return true;
-    if (obj.isError === true) return true;
-    return false;
-  } catch {
-    return false;
-  }
+    try {
+        const parsed = JSON.parse(outputJson);
+        if (typeof parsed !== "object" || parsed === null)
+            return false;
+        const obj = parsed;
+        if (obj.error !== undefined)
+            return true;
+        if (obj.isError === true)
+            return true;
+        return false;
+    }
+    catch {
+        return false;
+    }
 }
 export async function handleExportDashboard(db, args, server) {
-  const { trace_id } = args;
-  if (!trace_id || typeof trace_id !== "string") {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      "trace_id must be a non-empty string",
-    );
-  }
-  // Emit progress: starting generation
-  if (server) {
-    await server.notification({
-      method: "notifications/progress",
-      params: {
-        progressToken: `export_${trace_id}`,
-        progress: 0,
-        total: 100,
-      },
-    });
-  }
-  try {
-    const summary = computeSummary(db, trace_id);
-    if (!summary) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
-        `Unknown trace_id: ${trace_id}`,
-      );
+    const { trace_id } = args;
+    if (!trace_id || typeof trace_id !== "string") {
+        throw new McpError(ErrorCode.InvalidParams, "trace_id must be a non-empty string");
     }
-    const { trace, stepCount, totalTokens, totalLatencyMs, steps } = summary;
-    const durationMs =
-      trace.ended_at != null
-        ? trace.ended_at - trace.started_at
-        : Date.now() - trace.started_at;
-    const statusColor =
-      trace.status === "completed"
-        ? "#22c55e"
-        : trace.status === "running"
-          ? "#f59e0b"
-          : "#ef4444";
-    // Calculate max latency for waterfall proportions
-    const maxLatency = steps.reduce(
-      (max, s) => Math.max(max, s.latency_ms ?? 0),
-      0,
-    );
-    const stepsRows = steps
-      .map((s, i) => {
-        let inputStr = "";
-        let outputStr = "";
-        try {
-          inputStr = JSON.stringify(JSON.parse(s.input_json), null, 2);
-        } catch {
-          inputStr = s.input_json;
+    // Emit progress: starting generation
+    if (server) {
+        await server.notification({
+            method: "notifications/progress",
+            params: {
+                progressToken: `export_${trace_id}`,
+                progress: 0,
+                total: 100,
+            },
+        });
+    }
+    try {
+        const summary = computeSummary(db, trace_id);
+        if (!summary) {
+            throw new McpError(ErrorCode.InvalidParams, `Unknown trace_id: ${trace_id}`);
         }
-        try {
-          outputStr = JSON.stringify(JSON.parse(s.output_json), null, 2);
-        } catch {
-          outputStr = s.output_json;
-        }
-        const latency =
-          s.latency_ms != null ? formatDuration(s.latency_ms) : "—";
-        const tokens = s.token_count != null ? s.token_count.toString() : "—";
-        const ts = new Date(s.created_at).toISOString();
-        const hasError = isErrorOutput(s.output_json);
-        const rowStyle = hasError ? ' style="background:#3b0a0a;"' : "";
-        const errorBadge = hasError
-          ? ' <span class="error-badge">ERROR</span>'
-          : "";
-        // Waterfall bar width as percentage
-        const waterfallWidth =
-          maxLatency > 0 && s.latency_ms != null
-            ? Math.max(1, Math.round((s.latency_ms / maxLatency) * 100))
-            : 0;
-        const waterfallBar =
-          waterfallWidth > 0
-            ? `<div class="waterfall-bar" style="width:${waterfallWidth}%;"></div>`
-            : `<div class="waterfall-empty">—</div>`;
-        return `
+        const { trace, stepCount, totalTokens, totalLatencyMs, steps } = summary;
+        const durationMs = trace.ended_at != null
+            ? trace.ended_at - trace.started_at
+            : Date.now() - trace.started_at;
+        const statusColor = trace.status === "completed"
+            ? "#22c55e"
+            : trace.status === "running"
+                ? "#f59e0b"
+                : "#ef4444";
+        // Calculate max latency for waterfall proportions
+        const maxLatency = steps.reduce((max, s) => Math.max(max, s.latency_ms ?? 0), 0);
+        const stepsRows = steps
+            .map((s, i) => {
+            let inputStr = "";
+            let outputStr = "";
+            try {
+                inputStr = JSON.stringify(JSON.parse(s.input_json), null, 2);
+            }
+            catch {
+                inputStr = s.input_json;
+            }
+            try {
+                outputStr = JSON.stringify(JSON.parse(s.output_json), null, 2);
+            }
+            catch {
+                outputStr = s.output_json;
+            }
+            const latency = s.latency_ms != null ? formatDuration(s.latency_ms) : "—";
+            const tokens = s.token_count != null ? s.token_count.toString() : "—";
+            const ts = new Date(s.created_at).toISOString();
+            const hasError = isErrorOutput(s.output_json);
+            const rowStyle = hasError ? ' style="background:#3b0a0a;"' : "";
+            const errorBadge = hasError
+                ? ' <span class="error-badge">ERROR</span>'
+                : "";
+            // Waterfall bar width as percentage
+            const waterfallWidth = maxLatency > 0 && s.latency_ms != null
+                ? Math.max(1, Math.round((s.latency_ms / maxLatency) * 100))
+                : 0;
+            const waterfallBar = waterfallWidth > 0
+                ? `<div class="waterfall-bar" style="width:${waterfallWidth}%;"></div>`
+                : `<div class="waterfall-empty">—</div>`;
+            return `
         <tr${rowStyle}>
           <td class="step-num">${i + 1}</td>
           <td class="tool-name">${escapeHtml(s.tool_name)}${errorBadge}</td>
@@ -125,9 +119,9 @@ export async function handleExportDashboard(db, args, server) {
             </details>
           </td>
         </tr>`;
-      })
-      .join("\n");
-    const html = `<!DOCTYPE html>
+        })
+            .join("\n");
+        const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -355,26 +349,25 @@ export async function handleExportDashboard(db, args, server) {
   </div>
 </body>
 </html>`;
-    // Emit progress: done
-    if (server) {
-      await server.notification({
-        method: "notifications/progress",
-        params: {
-          progressToken: `export_${trace_id}`,
-          progress: 100,
-          total: 100,
-        },
-      });
+        // Emit progress: done
+        if (server) {
+            await server.notification({
+                method: "notifications/progress",
+                params: {
+                    progressToken: `export_${trace_id}`,
+                    progress: 100,
+                    total: 100,
+                },
+            });
+        }
+        return {
+            content: [{ type: "text", text: html }],
+        };
     }
-    return {
-      content: [{ type: "text", text: html }],
-    };
-  } catch (err) {
-    if (err instanceof McpError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    throw new McpError(
-      ErrorCode.InternalError,
-      `Failed to export dashboard: ${message}`,
-    );
-  }
+    catch (err) {
+        if (err instanceof McpError)
+            throw err;
+        const message = err instanceof Error ? err.message : String(err);
+        throw new McpError(ErrorCode.InternalError, `Failed to export dashboard: ${message}`);
+    }
 }

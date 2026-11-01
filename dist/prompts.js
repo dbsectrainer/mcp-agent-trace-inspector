@@ -29,40 +29,38 @@ Given the trace data for trace_id: {{trace_id}}, please perform a thorough inves
 
 Use the get_trace_summary tool with trace_id={{trace_id}} to fetch the data before beginning your analysis.`;
 export function handleListPrompts() {
-  return {
-    prompts: [
-      {
-        name: "analyze-trace",
-        description:
-          "Guide an investigation of a completed agent trace — surfaces performance bottlenecks, errors, reasoning chains, and optimization opportunities.",
-        arguments: [
-          {
-            name: "trace_id",
-            description: "The ID of the trace to analyze.",
-            required: true,
-          },
+    return {
+        prompts: [
+            {
+                name: "analyze-trace",
+                description: "Guide an investigation of a completed agent trace — surfaces performance bottlenecks, errors, reasoning chains, and optimization opportunities.",
+                arguments: [
+                    {
+                        name: "trace_id",
+                        description: "The ID of the trace to analyze.",
+                        required: true,
+                    },
+                ],
+            },
         ],
-      },
-    ],
-  };
+    };
 }
 export function handleGetPrompt(name, args) {
-  if (name !== "analyze-trace") {
-    throw new McpError(ErrorCode.InvalidParams, `Unknown prompt: ${name}`);
-  }
-  const traceId = args?.trace_id ?? "<trace_id>";
-  const promptText = ANALYZE_TRACE_PROMPT.replace(/{{trace_id}}/g, traceId);
-  return {
-    description:
-      "Analyze an agent trace for performance, errors, reasoning chains, and optimization opportunities.",
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: promptText,
-        },
-      },
-    ],
-  };
+    if (name !== "analyze-trace") {
+        throw new McpError(ErrorCode.InvalidParams, `Unknown prompt: ${name}`);
+    }
+    const traceId = args?.trace_id ?? "<trace_id>";
+    const promptText = ANALYZE_TRACE_PROMPT.replace(/{{trace_id}}/g, traceId);
+    return {
+        description: "Analyze an agent trace for performance, errors, reasoning chains, and optimization opportunities.",
+        messages: [
+            {
+                role: "user",
+                content: {
+                    type: "text",
+                    text: promptText,
+                },
+            },
+        ],
+    };
 }

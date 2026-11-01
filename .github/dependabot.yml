@@ -7,6 +7,18 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+    groups:
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+    ignore:
+      # typescript-eslint peers typescript <6.1.0
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # keep type definitions aligned with the Node 22 target
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

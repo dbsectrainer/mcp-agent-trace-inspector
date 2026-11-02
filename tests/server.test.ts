@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import {
-  createServer,
-  isRequestCancelled,
-  clearCancellation,
-} from "../src/server.js";
+import { createServer } from "../src/server.js";
 import { insertTrace, insertStep } from "../src/db.js";
 import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
@@ -39,19 +35,6 @@ function createTestDb(): DatabaseSync {
 // directly invoking the underlying tool functions (server is MCP protocol-level).
 // We test server.ts by importing its exported helpers and createServer directly.
 
-describe("server cancellation registry", () => {
-  it("isRequestCancelled returns false for unknown id", () => {
-    expect(isRequestCancelled("unknown-123")).toBe(false);
-  });
-
-  it("clearCancellation removes entry", () => {
-    // We need to exercise the registry via the notification handler.
-    // Since it's internal state, we test the exported helpers directly.
-    clearCancellation("some-id"); // should not throw
-    expect(isRequestCancelled("some-id")).toBe(false);
-  });
-});
-
 describe("createServer", () => {
   let db: DatabaseSync;
 
@@ -64,13 +47,13 @@ describe("createServer", () => {
   });
 
   it("returns a Server instance", () => {
-    const server = createServer({ db, noTokenCount: false });
+    const server = createServer({ db, noTokenCount: false, auditLog: null });
     expect(server).toBeDefined();
     expect(typeof server.connect).toBe("function");
   });
 
   it("can be created with noTokenCount=true", () => {
-    const server = createServer({ db, noTokenCount: true });
+    const server = createServer({ db, noTokenCount: true, auditLog: null });
     expect(server).toBeDefined();
   });
 });
@@ -346,6 +329,7 @@ describe("server export_dashboard progress notifications", () => {
       db,
       { trace_id: "progress-trace" },
       mockServer as never,
+      "progress-token-1",
     );
 
     expect(result.content[0].text).toContain("<!DOCTYPE html>");
@@ -357,7 +341,25 @@ describe("server export_dashboard progress notifications", () => {
         params: { progressToken: string; progress: number; total: number };
       }>
     >;
+    expect(calls[0][0].params.progressToken).toBe("progress-token-1");
     expect(calls[0][0].params.progress).toBe(0);
     expect(calls[1][0].params.progress).toBe(100);
+  });
+
+  it("does not send unsolicited progress notifications without a token", async () => {
+    const { handleExportDashboard } = await import("../src/tools/export.js");
+    insertTrace(db, "no-progress-trace", "No Progress Test");
+
+    const mockServer = {
+      notification: vi.fn(async () => undefined),
+    };
+
+    await handleExportDashboard(
+      db,
+      { trace_id: "no-progress-trace" },
+      mockServer as never,
+    );
+
+    expect(mockServer.notification).not.toHaveBeenCalled();
   });
 });

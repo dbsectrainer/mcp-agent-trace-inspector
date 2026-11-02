@@ -34,6 +34,14 @@ export function expandPath(p: string): string {
 }
 
 export function openDatabase(dbPath: string): DatabaseSync {
+  // `:memory:` must be passed through untouched; resolving it would create a
+  // file literally named ":memory:" in the current directory.
+  if (dbPath === ":memory:") {
+    const memoryDb = new DatabaseSync(":memory:");
+    initSchema(memoryDb);
+    return memoryDb;
+  }
+
   const expanded = expandPath(dbPath);
   const dir = dirname(expanded);
   if (!existsSync(dir)) {
@@ -110,8 +118,7 @@ export function insertStep(
 
 export function getTrace(db: DatabaseSync, id: string): TraceRow | undefined {
   return db.prepare(`SELECT * FROM traces WHERE id = ?`).get(id) as unknown as
-    | TraceRow
-    | undefined;
+    TraceRow | undefined;
 }
 
 export function getSteps(db: DatabaseSync, traceId: string): StepRow[] {

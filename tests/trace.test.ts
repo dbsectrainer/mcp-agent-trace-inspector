@@ -329,4 +329,142 @@ describe("trace lifecycle", () => {
     expect(steps[1].tool_name).toBe("tool_1");
     expect(steps[2].tool_name).toBe("tool_2");
   });
+
+  it("rejects negative and fractional token counts", () => {
+    const startResult = handleTraceStart(db, { name: "Invalid Tokens" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+
+    for (const token_count of [-1, 1.5]) {
+      expect(() =>
+        handleTraceStep(
+          db,
+          {
+            trace_id,
+            tool_name: "tool",
+            input: {},
+            output: {},
+            token_count,
+          },
+          false,
+        ),
+      ).toThrow(McpError);
+    }
+  });
+
+  it("rejects negative latency", () => {
+    const startResult = handleTraceStart(db, { name: "Invalid Latency" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+
+    expect(() =>
+      handleTraceStep(
+        db,
+        {
+          trace_id,
+          tool_name: "tool",
+          input: {},
+          output: {},
+          latency_ms: -5,
+        },
+        false,
+      ),
+    ).toThrow(McpError);
+  });
+
+  it("rejects array input and output payloads", () => {
+    const startResult = handleTraceStart(db, { name: "Array Payload" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+
+    expect(() =>
+      handleTraceStep(
+        db,
+        {
+          trace_id,
+          tool_name: "tool",
+          input: [] as unknown as object,
+          output: {},
+        },
+        false,
+      ),
+    ).toThrow(McpError);
+
+    expect(() =>
+      handleTraceStep(
+        db,
+        {
+          trace_id,
+          tool_name: "tool",
+          input: {},
+          output: [] as unknown as object,
+        },
+        false,
+      ),
+    ).toThrow(McpError);
+  });
+
+  it("rejects steps recorded after trace_end", () => {
+    const startResult = handleTraceStart(db, { name: "Closed Trace" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+    handleTraceEnd(db, { trace_id });
+
+    expect(() =>
+      handleTraceStep(
+        db,
+        {
+          trace_id,
+          tool_name: "late_tool",
+          input: {},
+          output: {},
+        },
+        false,
+      ),
+    ).toThrow(/already ended/);
+
+    expect(getSteps(db, trace_id)).toHaveLength(0);
+  });
+
+  it("trace_end is idempotent and does not move ended_at", () => {
+    const startResult = handleTraceStart(db, { name: "Idempotent End" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+    handleTraceStep(
+      db,
+      { trace_id, tool_name: "tool", input: {}, output: {} },
+      false,
+    );
+
+    const first = JSON.parse(handleTraceEnd(db, { trace_id }).content[0].text);
+    const firstTrace = getTrace(db, trace_id);
+    const second = JSON.parse(handleTraceEnd(db, { trace_id }).content[0].text);
+    const secondTrace = getTrace(db, trace_id);
+
+    expect(first.status).toBe("completed");
+    expect(second.already_completed).toBe(true);
+    expect(second.duration_ms).toBe(first.duration_ms);
+    expect(secondTrace!.ended_at).toBe(firstTrace!.ended_at);
+  });
+
+  it("uses a bounded chars/4 estimate for very large automatic payloads", () => {
+    const startResult = handleTraceStart(db, { name: "Large Payload" });
+    const { trace_id } = JSON.parse(startResult.content[0].text);
+    const largeOutput = { blob: "x".repeat(140 * 1024) };
+
+    const stepResult = handleTraceStep(
+      db,
+      {
+        trace_id,
+        tool_name: "large_tool",
+        input: {},
+        output: largeOutput,
+      },
+      false,
+    );
+    const parsed = JSON.parse(stepResult.content[0].text) as {
+      token_count: number;
+    };
+    const expected = Math.ceil(
+      (JSON.stringify({}).length + JSON.stringify(largeOutput).length) / 4,
+    );
+
+    expect(parsed.token_count).toBe(expected);
+    expect(parsed.token_count).toBeGreaterThan(0);
+  });
 });

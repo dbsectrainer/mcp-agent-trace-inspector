@@ -78,8 +78,11 @@ function base64url(s: string): string {
 function makeJwt(
   secret: string,
   payload: Record<string, unknown> = {},
+  headerOverrides: Record<string, unknown> = {},
 ): string {
-  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+  const header = base64url(
+    JSON.stringify({ alg: "HS256", typ: "JWT", ...headerOverrides }),
+  );
   const pay = base64url(JSON.stringify(payload));
   const sig = createHmac("sha256", secret)
     .update(`${header}.${pay}`)
@@ -202,6 +205,39 @@ describe("createAuthMiddleware", () => {
       exp: Math.floor(Date.now() / 1000) - 3600,
     });
     const req = makeReq({ authorization: `Bearer ${expiredToken}` });
+    const { res, ctx } = makeResCtx();
+    const { next, ctx: nextCtx } = makeNextCtx();
+
+    middleware(req, res, next);
+
+    expect(nextCtx.called).toBe(false);
+    expect(ctx.statusCode).toBe(401);
+  });
+
+  it("rejects a JWT whose header does not declare HS256", () => {
+    process.env.MCP_JWT_SECRET = "super-secret";
+    const middleware = createAuthMiddleware();
+
+    const token = makeJwt("super-secret", { sub: "user1" }, { alg: "none" });
+    const req = makeReq({ authorization: `Bearer ${token}` });
+    const { res, ctx } = makeResCtx();
+    const { next, ctx: nextCtx } = makeNextCtx();
+
+    middleware(req, res, next);
+
+    expect(nextCtx.called).toBe(false);
+    expect(ctx.statusCode).toBe(401);
+  });
+
+  it("rejects a JWT that is not valid yet", () => {
+    process.env.MCP_JWT_SECRET = "super-secret";
+    const middleware = createAuthMiddleware();
+
+    const token = makeJwt("super-secret", {
+      sub: "user1",
+      nbf: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const req = makeReq({ authorization: `Bearer ${token}` });
     const { res, ctx } = makeResCtx();
     const { next, ctx: nextCtx } = makeNextCtx();
 

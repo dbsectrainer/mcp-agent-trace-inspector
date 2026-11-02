@@ -1,18 +1,40 @@
 import { DatabaseSync } from "node:sqlite";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { insertTrace, endTrace, insertStep, getTrace } from "../db.js";
-import { getEncoding } from "js-tiktoken";
+import { encode } from "gpt-tokenizer/encoding/cl100k_base";
+
+// Automatic token counting is synchronous and therefore blocks the MCP event
+// loop. gpt-tokenizer is fast, but pathological multi-hundred-KiB payloads can
+// still take tens to hundreds of milliseconds. Above this size we use the
+// standard chars/4 estimate to keep step recording bounded. Callers can always
+// pass an exact token_count explicitly.
+const MAX_AUTO_TOKEN_COUNT_CHARS = 128 * 1024;
 
 /**
- * Compute offline token count for a text using tiktoken (cl100k_base).
- * Falls back to the char/4 approximation if tiktoken fails.
+ * Compute an offline token count for a text using the cl100k_base encoding.
+ *
+ * gpt-tokenizer is used instead of js-tiktoken because js-tiktoken's BPE
+ * implementation becomes pathologically slow (hundreds of milliseconds) on
+ * long runs without whitespace, which are common in JSON payloads (base64
+ * blobs, URLs, minified values). The resulting counts are identical.
+ *
+ * Falls back to the char/4 approximation for very large payloads or if
+ * encoding fails.
  */
 function computeTokenCount(text: string): number {
+  if (text.length > MAX_AUTO_TOKEN_COUNT_CHARS) {
+    return Math.ceil(text.length / 4);
+  }
   try {
-    const enc = getEncoding("cl100k_base");
-    return enc.encode(text).length;
+    return encode(text).length;
   } catch {
     return Math.ceil(text.length / 4);
+  }
+}
+
+function validateObject(value: unknown, field: string): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new McpError(ErrorCode.InvalidParams, `${field} must be an object`);
   }
 }
 
@@ -45,6 +67,13 @@ export function handleTraceStart(
   args: TraceStartArgs,
 ): { content: Array<{ type: string; text: string }> } {
   const raw = args.name;
+
+  if (raw !== undefined && raw !== null && typeof raw !== "string") {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      "name must be a string when provided",
+    );
+  }
 
   // Auto-generate name if empty, whitespace-only, or "auto"
   const isAuto =
@@ -98,11 +127,34 @@ export function handleTraceStep(
       "tool_name must be a non-empty string",
     );
   }
-  if (typeof input !== "object" || input === null) {
-    throw new McpError(ErrorCode.InvalidParams, "input must be an object");
+  validateObject(input, "input");
+  validateObject(output, "output");
+
+  if (token_count !== undefined) {
+    if (
+      typeof token_count !== "number" ||
+      !Number.isFinite(token_count) ||
+      !Number.isInteger(token_count) ||
+      token_count < 0
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "token_count must be a non-negative integer",
+      );
+    }
   }
-  if (typeof output !== "object" || output === null) {
-    throw new McpError(ErrorCode.InvalidParams, "output must be an object");
+
+  if (latency_ms !== undefined) {
+    if (
+      typeof latency_ms !== "number" ||
+      !Number.isFinite(latency_ms) ||
+      latency_ms < 0
+    ) {
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        "latency_ms must be a finite, non-negative number",
+      );
+    }
   }
 
   const trace = getTrace(db, trace_id);
@@ -110,6 +162,12 @@ export function handleTraceStep(
     throw new McpError(
       ErrorCode.InvalidParams,
       `Unknown trace_id: ${trace_id}`,
+    );
+  }
+  if (trace.status === "completed") {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Trace ${trace_id} has already ended; cannot record new steps`,
     );
   }
 
@@ -179,6 +237,24 @@ export function handleTraceEnd(
       ErrorCode.InvalidParams,
       `Unknown trace_id: ${trace_id}`,
     );
+  }
+
+  // Ending an already-completed trace is idempotent: do not move ended_at or
+  // re-run alert evaluation for a retried request.
+  if (trace.status === "completed" && trace.ended_at != null) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            trace_id,
+            status: "completed",
+            duration_ms: trace.ended_at - trace.started_at,
+            already_completed: true,
+          }),
+        },
+      ],
+    };
   }
 
   try {

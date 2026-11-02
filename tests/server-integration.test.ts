@@ -4,10 +4,15 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "../src/server.js";
 import { insertTrace, insertStep, endTrace } from "../src/db.js";
+import { AuditLog } from "../src/audit-log.js";
+import { getPackageVersion } from "../src/version.js";
 
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -39,8 +44,18 @@ function createTestDb(): DatabaseSync {
 async function createConnectedPair(
   db: DatabaseSync,
   noTokenCount = false,
+  options: { auditLog?: AuditLog | null } = {},
 ): Promise<{ client: Client; cleanup: () => Promise<void> }> {
-  const server = createServer({ db, noTokenCount });
+  const auditDir = mkdtempSync(join(tmpdir(), "trace-inspector-audit-"));
+  const auditLog =
+    options.auditLog === null
+      ? null
+      : (options.auditLog ?? new AuditLog(join(auditDir, "audit.jsonl")));
+  const server = createServer({
+    db,
+    noTokenCount,
+    auditLog,
+  });
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
 
@@ -58,6 +73,7 @@ async function createConnectedPair(
     client,
     cleanup: async () => {
       await client.close();
+      rmSync(auditDir, { recursive: true, force: true });
     },
   };
 }
@@ -86,6 +102,16 @@ describe("server integration via InMemoryTransport", () => {
       expect(names).toContain("export_dashboard");
       expect(names).toContain("compare_traces");
       expect(names).toContain("extract_reasoning_chain");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("advertises the package version during initialize", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      expect(client.getServerVersion()?.version).toBe(getPackageVersion());
+      expect(client.getServerVersion()?.name).toBe("mcp-agent-trace-inspector");
     } finally {
       await cleanup();
     }
@@ -537,6 +563,285 @@ describe("server integration via InMemoryTransport", () => {
     try {
       const result = await client.listPrompts();
       expect(result.prompts).toBeDefined();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("evaluates configured alert rules on trace_end", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      await client.callTool({
+        name: "configure_alerts",
+        arguments: {
+          rules: [{ type: "error_rate", threshold: 0 }],
+        },
+      });
+
+      const startResult = await client.callTool({
+        name: "trace_start",
+        arguments: { name: "Alert Integration" },
+      });
+      const { trace_id } = JSON.parse(
+        (startResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as { trace_id: string };
+
+      await client.callTool({
+        name: "trace_step",
+        arguments: {
+          trace_id,
+          tool_name: "failing_tool",
+          input: {},
+          output: { error: "boom" },
+          token_count: 10,
+          latency_ms: 100,
+        },
+      });
+
+      const endResult = await client.callTool({
+        name: "trace_end",
+        arguments: { trace_id },
+      });
+      const endData = JSON.parse(
+        (endResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as {
+        status: string;
+        alerts_fired: number;
+        alerts: Array<{ type: string }>;
+      };
+
+      expect(endData.status).toBe("completed");
+      expect(endData.alerts_fired).toBe(1);
+      expect(endData.alerts[0].type).toBe("error_rate");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("exports an OTLP/JSON document with resourceSpans", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      const startResult = await client.callTool({
+        name: "trace_start",
+        arguments: { name: "OTLP Integration" },
+      });
+      const { trace_id } = JSON.parse(
+        (startResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as { trace_id: string };
+
+      await client.callTool({
+        name: "trace_step",
+        arguments: {
+          trace_id,
+          tool_name: "search",
+          input: { q: "x" },
+          output: { ok: true },
+          token_count: 5,
+          latency_ms: 25,
+        },
+      });
+      await client.callTool({
+        name: "trace_end",
+        arguments: { trace_id },
+      });
+
+      const otlpResult = await client.callTool({
+        name: "export_otel",
+        arguments: { format: "json", trace_id },
+      });
+      const document = JSON.parse(
+        (otlpResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as {
+        resourceSpans: Array<{
+          resource: { attributes: Array<{ key: string }> };
+          scopeSpans: Array<{
+            spans: Array<{ name: string; traceId: string }>;
+          }>;
+        }>;
+      };
+
+      expect(document.resourceSpans).toHaveLength(1);
+      expect(document.resourceSpans[0].scopeSpans[0].spans).toHaveLength(2);
+      expect(
+        document.resourceSpans[0].resource.attributes.map((a) => a.key),
+      ).toContain("service.name");
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("writes and exports the compliance audit log", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      const startResult = await client.callTool({
+        name: "trace_start",
+        arguments: { name: "Audit Integration" },
+      });
+      const { trace_id } = JSON.parse(
+        (startResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as { trace_id: string };
+
+      await client.callTool({
+        name: "trace_step",
+        arguments: {
+          trace_id,
+          tool_name: "audited_tool",
+          input: {},
+          output: {},
+          token_count: 42,
+          latency_ms: 12,
+        },
+      });
+
+      const auditResult = await client.callTool({
+        name: "export_compliance_log",
+        arguments: { format: "json" },
+      });
+      const entries = JSON.parse(
+        (auditResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as Array<{ trace_id: string; tool_name: string; token_count: number }>;
+
+      expect(entries).toHaveLength(1);
+      expect(entries[0].trace_id).toBe(trace_id);
+      expect(entries[0].tool_name).toBe("audited_tool");
+      expect(entries[0].token_count).toBe(42);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("rejects invalid tool arguments with InvalidParams", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      await expect(
+        client.callTool({
+          name: "trace_start",
+          arguments: { name: 42 },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "list_traces",
+          arguments: { limit: 1.5 },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "get_trace_summary",
+          arguments: { trace_id: "missing", model: "  " },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "configure_alerts",
+          arguments: { rules: "not-an-array" },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "configure_alerts",
+          arguments: { rules: [{ type: "unknown", threshold: 1 }] },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "configure_alerts",
+          arguments: { rules: [{ type: "latency", threshold: "fast" }] },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "configure_alerts",
+          arguments: {
+            rules: [{ type: "latency", threshold: 1 }],
+            slack_webhook: "ftp://example.com/hook",
+          },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "export_otel",
+          arguments: { format: "xml" },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "export_otel",
+          arguments: { format: "json", trace_id: "missing" },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "export_compliance_log",
+          arguments: { format: "xml" },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "export_compliance_log",
+          arguments: { format: "json", from_date: "not-a-date" },
+        }),
+      ).rejects.toThrow();
+
+      await expect(
+        client.callTool({
+          name: "set_retention_policy",
+          arguments: { retention_days: 0 },
+        }),
+      ).rejects.toThrow();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("reports an error when the audit log is unavailable", async () => {
+    const { client, cleanup } = await createConnectedPair(db, false, {
+      auditLog: null,
+    });
+    try {
+      await expect(
+        client.callTool({
+          name: "export_compliance_log",
+          arguments: { format: "json" },
+        }),
+      ).rejects.toThrow(/Audit log is unavailable/);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it("supports the retention policy lifecycle", async () => {
+    const { client, cleanup } = await createConnectedPair(db);
+    try {
+      const setResult = await client.callTool({
+        name: "set_retention_policy",
+        arguments: { retention_days: 30 },
+      });
+      const setData = JSON.parse(
+        (setResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as { status: string; retention_days: number };
+      expect(setData).toEqual({ status: "ok", retention_days: 30 });
+
+      const applyResult = await client.callTool({
+        name: "apply_retention",
+        arguments: {},
+      });
+      const applyData = JSON.parse(
+        (applyResult.content as Array<{ type: string; text: string }>)[0].text,
+      ) as { status: string; retention_days: number; archived: number };
+      expect(applyData.status).toBe("ok");
+      expect(applyData.retention_days).toBe(30);
+      expect(applyData.archived).toBe(0);
     } finally {
       await cleanup();
     }

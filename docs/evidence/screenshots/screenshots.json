@@ -1,0 +1,48 @@
+{
+  "captured_at": "2026-11-01T23:45:12.916Z",
+  "source_html": "docs/evidence/build-results/dashboard-demo.html",
+  "source_html_sha256": "5754778e291ca1ee5264a3da6b6536cadd856e90aba42f83d3272bf1767f202f",
+  "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "console_errors": [],
+  "screenshots": [
+    {
+      "file": "docs/evidence/screenshots/dashboard-desktop.png",
+      "width": 1440,
+      "height": 821,
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "mobile": false,
+        "deviceScaleFactor": 1
+      },
+      "description": "Desktop rendering of the generated trace dashboard (stats, error-highlighted timeline, latency waterfall).",
+      "bytes": 86319
+    },
+    {
+      "file": "docs/evidence/screenshots/dashboard-error-step.png",
+      "width": 1440,
+      "height": 901,
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "mobile": false,
+        "deviceScaleFactor": 1
+      },
+      "description": "Dashboard with the failing step's input/output JSON expanded to verify error highlighting and payload rendering.",
+      "bytes": 89111
+    },
+    {
+      "file": "docs/evidence/screenshots/dashboard-mobile.png",
+      "width": 780,
+      "height": 4112,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "mobile": true,
+        "deviceScaleFactor": 2
+      },
+      "description": "Mobile viewport (390x844, DPR 2) showing responsive stat cards and the card-style step timeline.",
+      "bytes": 224022
+    }
+  ]
+}

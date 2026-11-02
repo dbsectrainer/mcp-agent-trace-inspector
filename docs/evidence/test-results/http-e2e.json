@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-11-01T23:45:10.765Z",
+  "node": "v26.13.0",
+  "package": "1.0.0",
+  "url": "http://127.0.0.1:60514/mcp",
+  "report": {
+    "initialize_requests": 2
+  },
+  "stderr": "[init] Loaded custom pricing table with 4 model(s)\n[init] Audit log: /var/folders/hr/f0c0ygw556z20368q0_gtl6c0000gn/T/mcp-trace-inspector-e2e-9oYwTE/http-audit.jsonl\n[init] Database opened: /var/folders/hr/f0c0ygw556z20368q0_gtl6c0000gn/T/mcp-trace-inspector-e2e-9oYwTE/http.db (MCP Agent Trace Inspector v1.0.0)\nMCP Agent Trace Inspector HTTP server listening on http://127.0.0.1:60514/mcp\n[trace_start] Started trace \"HTTP E2E Trace\" with id=79e8c29d-9d86-4b88-b02f-15fb93ba76ac\n[trace_step] Recorded step \"http_step\" for trace 79e8c29d-9d86-4b88-b02f-15fb93ba76ac, step id=2d92d782-835d-4225-aaa4-714d75a8463b\n[trace_end] Ended trace 79e8c29d-9d86-4b88-b02f-15fb93ba76ac (duration ~5ms)\n[shutdown] Received SIGTERM; closing HTTP server\n"
+}

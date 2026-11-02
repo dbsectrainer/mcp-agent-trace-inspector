@@ -85,7 +85,7 @@ describe("index.ts components (openDatabase + deleteOldTraces + loadPricingTable
       );
     `);
 
-    const server = createServer({ db, noTokenCount: false });
+    const server = createServer({ db, noTokenCount: false, auditLog: null });
     expect(server).toBeDefined();
     db.close();
   });
@@ -105,7 +105,7 @@ describe("index.ts components (openDatabase + deleteOldTraces + loadPricingTable
         FOREIGN KEY (trace_id) REFERENCES traces(id)
       );
     `);
-    const server = createServer({ db, noTokenCount: true });
+    const server = createServer({ db, noTokenCount: true, auditLog: null });
     expect(server).toBeDefined();
     db.close();
   });
@@ -214,6 +214,8 @@ describe("pricing.ts", () => {
       const result = loadPricingTable(path);
       expect(result["custom-model"]).toBeDefined();
       expect(result["custom-model"].input).toBe(0.002);
+      // Custom entries are merged over the built-in table.
+      expect(result["claude-sonnet-4-6"]).toBeDefined();
     } finally {
       unlinkSync(path);
     }

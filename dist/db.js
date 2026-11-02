@@ -10,6 +10,13 @@ export function expandPath(p) {
     return resolve(p);
 }
 export function openDatabase(dbPath) {
+    // `:memory:` must be passed through untouched; resolving it would create a
+    // file literally named ":memory:" in the current directory.
+    if (dbPath === ":memory:") {
+        const memoryDb = new DatabaseSync(":memory:");
+        initSchema(memoryDb);
+        return memoryDb;
+    }
     const expanded = expandPath(dbPath);
     const dir = dirname(expanded);
     if (!existsSync(dir)) {

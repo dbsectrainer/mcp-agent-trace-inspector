@@ -20,8 +20,13 @@ export interface AlertFired {
   message: string;
 }
 
-// Pricing per 1K tokens (input+output average) — rough estimate
+// Cost rate used by the `cost` alert rule. The audit/summary paths use the
+// active pricing table; alert thresholds intentionally use a single stable
+// default so rules remain comparable across traces.
 const COST_PER_1K_TOKENS_USD = 0.003;
+
+// Webhook delivery must never block trace recording indefinitely.
+const WEBHOOK_TIMEOUT_MS = 5000;
 
 function computeAverageLatencyMs(db: DatabaseSync): number {
   const traces = listTraces(db);
@@ -86,7 +91,23 @@ function computeTotalCostUsd(db: DatabaseSync): number {
 
 function postJson(url: string, body: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      reject(new Error(`Invalid webhook URL: ${url}`));
+      return;
+    }
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      reject(
+        new Error(
+          `Unsupported webhook URL protocol "${parsed.protocol}": only http and https are allowed`,
+        ),
+      );
+      return;
+    }
+
     const data = JSON.stringify(body);
     const isHttps = parsed.protocol === "https:";
     const reqFn = isHttps ? httpsRequest : httpRequest;
@@ -96,6 +117,7 @@ function postJson(url: string, body: unknown): Promise<void> {
       port: parsed.port || (isHttps ? 443 : 80),
       path: parsed.pathname + parsed.search,
       method: "POST",
+      timeout: WEBHOOK_TIMEOUT_MS,
       headers: {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(data),
@@ -104,9 +126,22 @@ function postJson(url: string, body: unknown): Promise<void> {
 
     const req = reqFn(options, (res) => {
       res.resume(); // drain response
-      res.on("end", resolve);
+      res.on("error", reject);
+      res.on("end", () => {
+        const status = res.statusCode;
+        if (typeof status === "number" && status >= 400) {
+          reject(new Error(`Webhook responded with HTTP ${status}`));
+          return;
+        }
+        resolve();
+      });
     });
 
+    req.on("timeout", () => {
+      req.destroy(
+        new Error(`Webhook request timed out after ${WEBHOOK_TIMEOUT_MS}ms`),
+      );
+    });
     req.on("error", reject);
     req.write(data);
     req.end();

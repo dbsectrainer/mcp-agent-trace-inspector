@@ -30,6 +30,7 @@ describe("AuditLog", () => {
   });
 
   afterEach(() => {
+    delete process.env.MCP_AUDIT_LOG_PATH;
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -100,6 +101,32 @@ describe("AuditLog", () => {
     expect(entries).toHaveLength(2);
     expect(entries[0].trace_id).toBe("t1");
     expect(entries[1].trace_id).toBe("t2");
+  });
+
+  it("uses MCP_AUDIT_LOG_PATH when no explicit path is given", () => {
+    const envPath = join(tempDir, "env-audit.jsonl");
+    process.env.MCP_AUDIT_LOG_PATH = envPath;
+    const log = new AuditLog();
+    log.record(makeEntry({ trace_id: "env-trace" }));
+
+    expect(log.path).toBe(envPath);
+    expect(existsSync(envPath)).toBe(true);
+    expect(log.export()[0].trace_id).toBe("env-trace");
+  });
+
+  it("treats a date-only to_date as inclusive of the whole day", () => {
+    const log = new AuditLog(auditFilePath);
+    log.record(
+      makeEntry({ timestamp: "2025-06-30T23:59:59.999Z", trace_id: "late" }),
+    );
+
+    expect(log.export(undefined, "2025-06-30")).toHaveLength(1);
+    expect(log.export(undefined, "2025-06-29")).toHaveLength(0);
+  });
+
+  it("rejects an invalid date filter", () => {
+    const log = new AuditLog(auditFilePath);
+    expect(() => log.export("not-a-date")).toThrow(/Invalid date filter/);
   });
 
   it("filters entries by both from_date and to_date", () => {

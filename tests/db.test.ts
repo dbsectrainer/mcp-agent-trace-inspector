@@ -204,22 +204,22 @@ describe("openDatabase and expandPath", () => {
     db.close();
   });
 
-  it("openDatabase works with a tilde path", () => {
-    const tildePath = "~/tmp-trace-inspector-test-db/test.db";
-    const expandedPath = expandPath(tildePath);
-    let db: DatabaseSync | undefined;
+  it("openDatabase supports an in-memory database", () => {
+    const db = openDatabase(":memory:");
     try {
-      db = openDatabase(tildePath);
-      expect(existsSync(expandedPath)).toBe(true);
-      insertTrace(db, "tilde-test", "Tilde Test");
-      const trace = getTrace(db, "tilde-test");
+      insertTrace(db, "memory-test", "Memory Test");
+      const trace = getTrace(db, "memory-test");
       expect(trace).toBeDefined();
+      expect(trace!.name).toBe("Memory Test");
     } finally {
-      if (db) db.close();
-      const dir = expandPath("~/tmp-trace-inspector-test-db");
-      if (existsSync(dir)) {
-        rmSync(dir, { recursive: true, force: true });
-      }
+      db.close();
     }
+  });
+
+  it("expandPath maps a tilde path without writing to the home directory", () => {
+    const expanded = expandPath("~/tmp-trace-inspector-test-db/test.db");
+    expect(expanded).toBe(
+      join(homedir(), "tmp-trace-inspector-test-db", "test.db"),
+    );
   });
 });

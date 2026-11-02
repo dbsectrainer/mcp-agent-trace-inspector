@@ -1,0 +1,224 @@
+{
+  "timestamp": "2026-11-01T23:45:10.086Z",
+  "duration_ms": 1289,
+  "node": "v26.13.0",
+  "package": "1.0.0",
+  "checks": [
+    {
+      "name": "stdio initialize advertises package version",
+      "status": "pass"
+    },
+    {
+      "name": "stdio lists all 13 tools",
+      "status": "pass"
+    },
+    {
+      "name": "trace lifecycle: start, five steps, summary",
+      "status": "pass"
+    },
+    {
+      "name": "configure_alerts and trace_end evaluate rules",
+      "status": "pass"
+    },
+    {
+      "name": "export_dashboard produces a self-contained HTML file",
+      "status": "pass"
+    },
+    {
+      "name": "second trace supports compare_traces",
+      "status": "pass"
+    },
+    {
+      "name": "extract_reasoning_chain finds reasoning steps",
+      "status": "pass"
+    },
+    {
+      "name": "list_traces returns both traces",
+      "status": "pass"
+    },
+    {
+      "name": "resources and prompts are exposed",
+      "status": "pass"
+    },
+    {
+      "name": "export_otel returns a standard OTLP/JSON document",
+      "status": "pass"
+    },
+    {
+      "name": "compliance audit log exports JSON and CSV",
+      "status": "pass"
+    },
+    {
+      "name": "retention policy can be set and applied",
+      "status": "pass"
+    },
+    {
+      "name": "invalid operations fail without corrupting state",
+      "status": "pass"
+    },
+    {
+      "name": "generic alert webhook receives fired alerts",
+      "status": "pass"
+    },
+    {
+      "name": "HTTP serves two sequential initialize requests",
+      "status": "pass"
+    },
+    {
+      "name": "HTTP tool calls share the database across requests",
+      "status": "pass"
+    },
+    {
+      "name": "HTTP rejects GET and malformed JSON cleanly",
+      "status": "pass"
+    },
+    {
+      "name": "HTTP authentication rejects missing/incorrect keys",
+      "status": "pass"
+    },
+    {
+      "name": "CLI --version matches package.json",
+      "status": "pass"
+    }
+  ],
+  "stdio": {
+    "summary": {
+      "trace_id": "653e6fe8-2620-4837-a9a6-c3f11727a341",
+      "name": "E2E Verification Trace",
+      "status": "running",
+      "started_at": 1793576710396,
+      "ended_at": null,
+      "duration_ms": 6,
+      "step_count": 5,
+      "total_tokens": 426,
+      "total_latency_ms": 180,
+      "estimated_cost_usd": 0.213,
+      "cost_model": "demo-model",
+      "reasoning_chain_detected": true,
+      "reasoning_patterns": [
+        "reasoning_tool"
+      ],
+      "steps": [
+        {
+          "id": "af06077d-abd1-417c-b552-92f4c700dd19",
+          "tool_name": "prompt",
+          "token_count": 120,
+          "latency_ms": 15,
+          "created_at": 1793576710397
+        },
+        {
+          "id": "2a90fb5d-00b6-49af-a4bc-5b41bb988951",
+          "tool_name": "reasoning_tool",
+          "token_count": 80,
+          "latency_ms": 40,
+          "created_at": 1793576710399
+        },
+        {
+          "id": "07d1b9b8-4507-4020-812f-0bffd374e874",
+          "tool_name": "failing_tool",
+          "token_count": 10,
+          "latency_ms": 5,
+          "created_at": 1793576710400
+        },
+        {
+          "id": "ad67a3f1-393a-4bf1-8cff-22dfa89f233d",
+          "tool_name": "http_fetch",
+          "token_count": 200,
+          "latency_ms": 120,
+          "created_at": 1793576710400
+        },
+        {
+          "id": "669e4cb9-9c93-4edd-be3c-50e3a92b47f3",
+          "tool_name": "auto_token_tool",
+          "token_count": 16,
+          "latency_ms": null,
+          "created_at": 1793576710401
+        }
+      ]
+    },
+    "trace_end": {
+      "trace_id": "653e6fe8-2620-4837-a9a6-c3f11727a341",
+      "status": "completed",
+      "duration_ms": 7,
+      "alerts_fired": 2,
+      "alerts": [
+        {
+          "type": "error_rate",
+          "threshold": 0,
+          "value": 20,
+          "message": "Error rate 20.0% exceeds threshold 0%"
+        },
+        {
+          "type": "latency",
+          "threshold": 1,
+          "value": 45,
+          "message": "Average step latency 45ms exceeds threshold 1ms"
+        }
+      ]
+    },
+    "dashboard_path": "/Users/newtechlab/Documents/GitHub/mcp-agent-trace-inspector/docs/evidence/build-results/dashboard-demo.html",
+    "dashboard_bytes": 13069,
+    "comparison": {
+      "trace_a": {
+        "id": "653e6fe8-2620-4837-a9a6-c3f11727a341",
+        "name": "E2E Verification Trace",
+        "step_count": 5,
+        "total_tokens": 426,
+        "total_latency_ms": 180
+      },
+      "trace_b": {
+        "id": "9c76c0e2-2c58-41a3-98d6-4af8248e4712",
+        "name": "E2E Comparison Trace",
+        "step_count": 2,
+        "total_tokens": 100,
+        "total_latency_ms": 30
+      },
+      "diff": {
+        "step_count": -3,
+        "total_tokens": -326,
+        "total_latency_ms": -150
+      },
+      "tools_only_in_a": [
+        "failing_tool",
+        "http_fetch",
+        "auto_token_tool"
+      ],
+      "tools_only_in_b": [],
+      "tools_in_both": [
+        "prompt",
+        "reasoning_tool"
+      ],
+      "step_diffs": [
+        {
+          "index": 1,
+          "tool_a": "prompt",
+          "tool_b": "prompt",
+          "same_tool": true,
+          "token_diff": -60,
+          "latency_diff": -5
+        },
+        {
+          "index": 2,
+          "tool_a": "reasoning_tool",
+          "tool_b": "reasoning_tool",
+          "same_tool": true,
+          "token_diff": -40,
+          "latency_diff": -20
+        }
+      ]
+    },
+    "otlp_span_count": 6,
+    "audit_entries": 7,
+    "webhook_alerts": 1,
+    "webhook_payload": {
+      "alert_type": "error_rate",
+      "threshold": 0,
+      "value": 25,
+      "message": "Error rate 25.0% exceeds threshold 0%",
+      "timestamp": "2026-11-01T23:45:10.420Z"
+    }
+  },
+  "http": {
+    "initialize_requests": 2
+  }
+}

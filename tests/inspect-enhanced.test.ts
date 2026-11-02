@@ -134,6 +134,37 @@ describe("get_trace_summary — cost estimation", () => {
     expect(parsed.estimated_cost_usd).not.toBeNull();
   });
 
+  it("uses a supplied custom pricing table", () => {
+    insertTrace(db, "custom-cost", "Custom Cost");
+    insertStep(db, {
+      id: "cc1",
+      trace_id: "custom-cost",
+      tool_name: "tool",
+      input_json: "{}",
+      output_json: "{}",
+      token_count: 1000,
+      latency_ms: 1,
+    });
+
+    const result = handleGetTraceSummary(
+      db,
+      { trace_id: "custom-cost", model: "custom-model" },
+      { "custom-model": { input: 0.5, output: 1 } },
+    );
+    const parsed = JSON.parse(
+      result.content[1].text.replace(/^[\s\S]*?JSON:\n/, ""),
+    ) as { estimated_cost_usd: number };
+
+    expect(parsed.estimated_cost_usd).toBeCloseTo(0.5, 6);
+  });
+
+  it("rejects an empty model name", () => {
+    insertTrace(db, "empty-model", "Empty Model");
+    expect(() =>
+      handleGetTraceSummary(db, { trace_id: "empty-model", model: "  " }),
+    ).toThrow(McpError);
+  });
+
   it("text output includes cost line", () => {
     insertTrace(db, "cost-text", "Cost Text");
     insertStep(db, {
@@ -176,6 +207,10 @@ describe("handleListTraces", () => {
     expect(() =>
       handleListTraces(db, { limit: "abc" as unknown as number }),
     ).toThrow(McpError);
+  });
+
+  it("throws McpError when limit is fractional", () => {
+    expect(() => handleListTraces(db, { limit: 1.5 })).toThrow(McpError);
   });
 
   it("returns all traces without limit", () => {

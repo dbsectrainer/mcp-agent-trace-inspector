@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 function base64urlDecode(str) {
     // Convert base64url to base64
     const base64 = str.replace(/-/g, "+").replace(/_/g, "/");
@@ -11,36 +11,50 @@ function verifyJwt(token, secret) {
         return false;
     const [headerB64, payloadB64, signatureB64] = parts;
     const signingInput = `${headerB64}.${payloadB64}`;
+    // Only HMAC-SHA256 tokens are supported. Rejecting other algorithms avoids
+    // accepting a token whose header claims an algorithm we do not verify.
+    try {
+        const header = JSON.parse(base64urlDecode(headerB64).toString("utf8"));
+        if (header.alg !== "HS256")
+            return false;
+    }
+    catch {
+        return false;
+    }
     const expectedSig = createHmac("sha256", secret)
         .update(signingInput)
-        .digest("base64url");
-    // Constant-time comparison
-    const expected = Buffer.from(expectedSig);
-    const actual = Buffer.from(signatureB64);
-    if (expected.length !== actual.length)
+        .digest();
+    const actualSig = base64urlDecode(signatureB64);
+    if (expectedSig.length !== actualSig.length)
         return false;
-    let diff = 0;
-    for (let i = 0; i < expected.length; i++) {
-        diff |= expected[i] ^ actual[i];
-    }
-    return diff === 0;
+    return timingSafeEqual(expectedSig, actualSig);
 }
-function verifyPayloadExpiry(token) {
+function verifyPayloadClaims(token) {
     const parts = token.split(".");
     if (parts.length !== 3)
         return false;
+    let payload;
     try {
-        const payloadJson = base64urlDecode(parts[1]).toString("utf8");
-        const payload = JSON.parse(payloadJson);
-        if (typeof payload.exp === "number" &&
-            payload.exp < Math.floor(Date.now() / 1000)) {
-            return false;
-        }
+        payload = JSON.parse(base64urlDecode(parts[1]).toString("utf8"));
     }
     catch {
-        // If payload can't be parsed, don't block — just ignore expiry check
+        return false;
+    }
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    if (typeof payload.exp === "number" && payload.exp < nowSeconds) {
+        return false;
+    }
+    if (typeof payload.nbf === "number" && payload.nbf > nowSeconds) {
+        return false;
     }
     return true;
+}
+function constantTimeStringEqual(a, b) {
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    if (left.length !== right.length)
+        return false;
+    return timingSafeEqual(left, right);
 }
 export function createAuthMiddleware() {
     return (req, res, next) => {
@@ -54,7 +68,8 @@ export function createAuthMiddleware() {
         // Validate X-API-Key if MCP_API_KEY is set
         if (apiKeyEnv) {
             const providedKey = req.headers["x-api-key"];
-            if (typeof providedKey !== "string" || providedKey !== apiKeyEnv) {
+            if (typeof providedKey !== "string" ||
+                !constantTimeStringEqual(providedKey, apiKeyEnv)) {
                 res.status(401).json({ error: "Unauthorized: invalid API key" });
                 return;
             }
@@ -73,8 +88,10 @@ export function createAuthMiddleware() {
                 res.status(401).json({ error: "Unauthorized: invalid JWT signature" });
                 return;
             }
-            if (!verifyPayloadExpiry(token)) {
-                res.status(401).json({ error: "Unauthorized: JWT has expired" });
+            if (!verifyPayloadClaims(token)) {
+                res.status(401).json({
+                    error: "Unauthorized: JWT claims are invalid or expired",
+                });
                 return;
             }
         }

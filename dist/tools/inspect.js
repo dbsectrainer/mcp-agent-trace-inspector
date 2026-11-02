@@ -1,6 +1,6 @@
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { computeSummary, listTraces } from "../db.js";
-import { DEFAULT_PRICING, estimateCost } from "../pricing.js";
+import { DEFAULT_PRICING, estimateCost, } from "../pricing.js";
 /**
  * Detect prompt→reasoning→action patterns in step tool names.
  * Returns true if the sequence contains at least one instance of the pattern.
@@ -27,10 +27,14 @@ function detectReasoningChain(toolNames) {
         patterns: patterns.length > 0 ? patterns : standaloneReasoning.map((t) => t),
     };
 }
-export function handleGetTraceSummary(db, args) {
+export function handleGetTraceSummary(db, args, pricing = DEFAULT_PRICING) {
     const { trace_id, model } = args;
     if (!trace_id || typeof trace_id !== "string") {
         throw new McpError(ErrorCode.InvalidParams, "trace_id must be a non-empty string");
+    }
+    if (model !== undefined &&
+        (typeof model !== "string" || model.trim() === "")) {
+        throw new McpError(ErrorCode.InvalidParams, "model must be a non-empty string when provided");
     }
     try {
         const summary = computeSummary(db, trace_id);
@@ -43,9 +47,7 @@ export function handleGetTraceSummary(db, args) {
             : Date.now() - trace.started_at;
         // Cost estimation
         const pricingModel = model ?? "claude-sonnet-4-6";
-        const estimatedCost = totalTokens > 0
-            ? estimateCost(totalTokens, pricingModel, DEFAULT_PRICING)
-            : null;
+        const estimatedCost = totalTokens > 0 ? estimateCost(totalTokens, pricingModel, pricing) : null;
         // Reasoning chain detection
         const toolNames = steps.map((s) => s.tool_name);
         const reasoningResult = detectReasoningChain(toolNames);
@@ -111,7 +113,11 @@ export function handleGetTraceSummary(db, args) {
 }
 export function handleListTraces(db, args) {
     const { limit } = args;
-    if (limit !== undefined && (typeof limit !== "number" || limit < 1)) {
+    if (limit !== undefined &&
+        (typeof limit !== "number" ||
+            !Number.isFinite(limit) ||
+            !Number.isInteger(limit) ||
+            limit < 1)) {
         throw new McpError(ErrorCode.InvalidParams, "limit must be a positive integer");
     }
     try {

@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { computeSummary } from "../db.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { safeNotify } from "../notifications.js";
 
 export interface ExportDashboardArgs {
   trace_id: string;
@@ -41,6 +42,7 @@ export async function handleExportDashboard(
   db: DatabaseSync,
   args: ExportDashboardArgs,
   server?: Server,
+  progressToken?: string | number,
 ): Promise<{ content: Array<{ type: string; text: string }> }> {
   const { trace_id } = args;
   if (!trace_id || typeof trace_id !== "string") {
@@ -50,12 +52,13 @@ export async function handleExportDashboard(
     );
   }
 
-  // Emit progress: starting generation
-  if (server) {
-    await server.notification({
+  // Progress notifications are only valid when the client supplied a
+  // progress token with the request; never invent one.
+  if (server && progressToken !== undefined) {
+    await safeNotify(server, {
       method: "notifications/progress",
       params: {
-        progressToken: `export_${trace_id}`,
+        progressToken,
         progress: 0,
         total: 100,
       },
@@ -126,23 +129,23 @@ export async function handleExportDashboard(
 
         return `
         <tr${rowStyle}>
-          <td class="step-num">${i + 1}</td>
-          <td class="tool-name">${escapeHtml(s.tool_name)}${errorBadge}</td>
-          <td class="ts">${escapeHtml(ts)}</td>
-          <td class="latency">
+          <td class="step-num" data-label="#">${i + 1}</td>
+          <td class="tool-name" data-label="Tool">${escapeHtml(s.tool_name)}${errorBadge}</td>
+          <td class="ts" data-label="Timestamp">${escapeHtml(ts)}</td>
+          <td class="latency" data-label="Latency">
             ${escapeHtml(latency)}
             ${waterfallBar}
           </td>
-          <td class="tokens">${escapeHtml(tokens)}</td>
-          <td>
+          <td class="tokens" data-label="Tokens">${escapeHtml(tokens)}</td>
+          <td data-label="Input">
             <details>
-              <summary>View</summary>
+              <summary>View<span class="sr-only"> input for step ${i + 1}</span></summary>
               <pre class="json-block">${escapeHtml(inputStr)}</pre>
             </details>
           </td>
-          <td>
+          <td data-label="Output">
             <details>
-              <summary>View</summary>
+              <summary>View<span class="sr-only"> output for step ${i + 1}</span></summary>
               <pre class="json-block${hasError ? " error-output" : ""}">${escapeHtml(outputStr)}</pre>
             </details>
           </td>
@@ -155,6 +158,7 @@ export async function handleExportDashboard(
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark" />
   <title>Trace Dashboard: ${escapeHtml(trace.name)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -178,6 +182,7 @@ export async function handleExportDashboard(
       font-weight: 700;
       color: #f1f5f9;
       margin-bottom: 0.5rem;
+      overflow-wrap: anywhere;
     }
     .badge {
       display: inline-block;
@@ -241,6 +246,13 @@ export async function handleExportDashboard(
       border-radius: 12px;
       overflow: hidden;
       margin-bottom: 1.5rem;
+    }
+    .table-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-scroll table {
+      min-width: 760px;
     }
     .card-header {
       padding: 1rem 1.5rem;
@@ -313,6 +325,59 @@ export async function handleExportDashboard(
       background: #1a0505;
       color: #fca5a5;
     }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+      header { padding: 1rem 1.25rem; }
+      header h1 { font-size: 1.4rem; }
+      .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stat-card { padding: 0.75rem; }
+      .stat-card .value { font-size: 1.4rem; }
+
+      /* Render each timeline row as a compact card instead of forcing the
+         seven-column table to scroll horizontally. */
+      .table-scroll table { min-width: 0; }
+      .table-scroll thead { display: none; }
+      .table-scroll table,
+      .table-scroll tbody,
+      .table-scroll tr,
+      .table-scroll td {
+        display: block;
+        width: 100%;
+      }
+      .table-scroll tr {
+        border-top: 1px solid #334155;
+        padding: 0.75rem 1rem;
+      }
+      .table-scroll tr:first-child { border-top: none; }
+      .table-scroll td {
+        border: 0;
+        padding: 0.2rem 0;
+      }
+      .table-scroll td::before {
+        content: attr(data-label);
+        display: inline-block;
+        min-width: 4.5rem;
+        color: #64748b;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .table-scroll td.empty::before { content: none; }
+      .table-scroll td.tool-name { font-size: 1rem; }
+      .table-scroll .ts { white-space: normal; overflow-wrap: anywhere; }
+      .table-scroll .waterfall-bar { max-width: 100%; }
+    }
     footer {
       text-align: center;
       font-size: 0.75rem;
@@ -354,22 +419,24 @@ export async function handleExportDashboard(
 
     <div class="card">
       <div class="card-header">Step Timeline</div>
+      <div class="table-scroll">
       <table>
         <thead>
           <tr>
-            <th>#</th>
-            <th>Tool</th>
-            <th>Timestamp</th>
-            <th>Latency / Waterfall</th>
-            <th>Tokens</th>
-            <th>Input</th>
-            <th>Output</th>
+            <th scope="col">#</th>
+            <th scope="col">Tool</th>
+            <th scope="col">Timestamp</th>
+            <th scope="col">Latency / Waterfall</th>
+            <th scope="col">Tokens</th>
+            <th scope="col">Input</th>
+            <th scope="col">Output</th>
           </tr>
         </thead>
         <tbody>
-          ${stepsRows || '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:2rem;">No steps recorded</td></tr>'}
+          ${stepsRows || '<tr><td class="empty" colspan="7" style="text-align:center;color:#64748b;padding:2rem;">No steps recorded</td></tr>'}
         </tbody>
       </table>
+      </div>
     </div>
 
     <footer>
@@ -380,11 +447,11 @@ export async function handleExportDashboard(
 </html>`;
 
     // Emit progress: done
-    if (server) {
-      await server.notification({
+    if (server && progressToken !== undefined) {
+      await safeNotify(server, {
         method: "notifications/progress",
         params: {
-          progressToken: `export_${trace_id}`,
+          progressToken,
           progress: 100,
           total: 100,
         },

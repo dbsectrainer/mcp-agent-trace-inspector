@@ -1,11 +1,14 @@
 import { defineConfig } from "vitest/config";
-import { resolve } from "path";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const rootDir = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
   resolve: {
     alias: {
       // Provide a shim for node:sqlite so Vite can resolve it during tests
-      "node:sqlite": resolve(__dirname, "shims/sqlite.cjs"),
+      "node:sqlite": resolve(rootDir, "shims/sqlite.cjs"),
     },
   },
   test: {

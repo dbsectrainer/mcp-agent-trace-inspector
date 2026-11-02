@@ -181,6 +181,38 @@ describe("checkAndAlert", () => {
     const fired = await checkAndAlert(db, rules, channels);
     expect(fired).toHaveLength(1);
   });
+
+  it("posts Slack block payloads when a Slack webhook is configured", async () => {
+    mockWrite.mockClear();
+    mockResOn.mockImplementation((event: string, cb: () => void) => {
+      if (event === "end") cb();
+    });
+
+    insertTrace(db, "t6", "Slack Test");
+    insertStep(db, {
+      id: "s6",
+      trace_id: "t6",
+      tool_name: "slow_slack",
+      input_json: "{}",
+      output_json: "{}",
+      token_count: null,
+      latency_ms: 5000,
+    });
+
+    const fired = await checkAndAlert(
+      db,
+      [{ type: "latency", threshold: 100 }],
+      { slackWebhook: "https://hooks.slack.com/services/test" },
+    );
+    expect(fired).toHaveLength(1);
+    expect(mockWrite).toHaveBeenCalled();
+
+    const payload = JSON.parse(mockWrite.mock.calls[0][0] as string) as {
+      blocks?: Array<{ type: string }>;
+    };
+    expect(payload.blocks).toBeInstanceOf(Array);
+    expect(payload.blocks?.[0].type).toBe("section");
+  });
 });
 
 describe("saveAlertRules / loadAlertRules", () => {

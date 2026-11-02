@@ -1,45 +1,78 @@
 # MCP Agent Trace Inspector
 
-npm `mcp-agent-trace-inspector` package
+Local-first, MCP-native observability for agent workflows. Every tool call, prompt
+transformation, latency, token estimate, and cost estimate is recorded in a local
+SQLite database — no cloud account, no API key, and no traces leaving your machine.
 
-Local-first, MCP-native observability for agent workflows. Every tool call, prompt transformation, latency, and token count is recorded in a local SQLite database — no cloud account, no API key, no traces leaving your machine. Built specifically for MCP rather than bolted onto a generic LLM proxy.
+Built specifically for MCP rather than bolted onto a generic LLM proxy.
 
-[Tool reference](#tools) | [Configuration](#configuration) | [Contributing](#contributing) | [Troubleshooting](#troubleshooting) | [Design principles](#design-principles)
+[Tools](#tools) · [Configuration](#configuration) · [HTTP transport](#streamable-http-transport) ·
+[Verification](#verification) · [Known limitations](#known-limitations) · [Contributing](#contributing)
+
+## Overview
+
+`mcp-agent-trace-inspector` is an MCP server. Agents call its tools to start a trace,
+record each step they take, and finish the trace. Humans then inspect summaries,
+compare runs, export a self-contained HTML dashboard, export OTLP/JSON spans, or
+stream the compliance audit log.
+
+```text
+Agent / MCP client
+      │  trace_start → trace_step → trace_end
+      ▼
+MCP Agent Trace Inspector
+      ├── SQLite (~/.mcp/traces.db)
+      ├── JSONL audit log (~/.mcp/trace-inspector-audit.jsonl)
+      └── tools: summaries, diffs, HTML, OTLP/JSON, retention, alerts
+```
 
 ## Key features
 
-- **Tool call tracing**: Captures inputs, outputs, latency, and token usage for every step in a workflow.
-- **Persistent storage**: Traces survive session restarts; stored locally in SQLite with no external dependencies.
-- **HTML dashboard**: Generates a self-contained single-file dashboard with an interactive step timeline.
-- **Token cost estimation**: Calculates USD cost per trace using a configurable model pricing table — no API calls required.
-- **Trace comparison**: Diff two traces side by side to measure the impact of prompt or tool changes.
-- **Low overhead**: Adds less than 5ms per step; never becomes the bottleneck.
+- **Tool-call tracing** — inputs, outputs, latency, caller-supplied or automatic
+  token estimates for every step.
+- **Persistent local storage** — SQLite via Node's built-in `node:sqlite`; traces
+  survive restarts and never require a service.
+- **Self-contained HTML dashboard** — error highlighting, step timeline, latency
+  waterfall, responsive layout, and expandable input/output JSON.
+- **Cost estimation** — offline `cl100k_base` tokenizer plus a configurable pricing
+  table; no API calls and no billing-account data.
+- **Trace comparison** — aggregate and step-by-step diffs between two runs.
+- **Reasoning-chain extraction** — finds reasoning/thinking/planning steps.
+- **OTLP/JSON export** — standard `resourceSpans → scopeSpans → spans` documents.
+- **Compliance audit log** — append-only JSONL of recorded steps, exportable as JSON
+  or CSV with date filtering.
+- **Alerts** — persisted latency, error-rate, and cost thresholds evaluated when a
+  trace ends; optional Slack or generic webhook delivery.
+- **Retention controls** — startup purge or explicit archive/delete policy.
+- **Two transports** — stdio (default) and stateless Streamable HTTP with optional
+  API-key/JWT authentication and rate limiting.
 
-## Why this over LangSmith / AgentOps?
+## Technology stack
 
-|                 | mcp-agent-trace-inspector                        | LangSmith / AgentOps                          |
-| --------------- | ------------------------------------------------ | --------------------------------------------- |
-| Data location   | Local SQLite — never leaves your machine         | Cloud-hosted; traces sent to external servers |
-| Setup           | `npx` one-liner, zero config                     | Account signup, API key, SDK instrumentation  |
-| MCP-aware       | Native — records tool calls as first-class steps | Generic LLM proxy; MCP structure is opaque    |
-| Run diffs       | Built-in `compare_traces` diff                   | Separate paid feature or manual export        |
-| Cost estimation | Offline tiktoken + configurable pricing table    | Requires live API traffic through their proxy |
-| Overhead        | &lt;5ms per step                                 | Network round-trip per event                  |
-
-If your traces contain sensitive tool outputs, proprietary prompts, or data that must stay on-device, this is the right tool. If you need cross-team trace sharing or a managed SaaS, use LangSmith.
-
-## Disclaimers
-
-`mcp-agent-trace-inspector` stores tool call inputs and outputs locally in a SQLite database. Traces may contain sensitive information passed to or returned from your tools. Review trace contents before sharing dashboard exports. Traces are not automatically transmitted; optional alert webhooks are available.
+| Layer            | Choice                                                        |
+| ---------------- | ------------------------------------------------------------- |
+| Runtime          | Node.js ≥ 22.13 (ESM, built-in `node:sqlite`)                 |
+| Language         | TypeScript 5, strict mode                                     |
+| Protocol         | `@modelcontextprotocol/sdk` (tools, resources, prompts)       |
+| HTTP             | Express 5 + MCP Streamable HTTP transport                     |
+| Storage          | SQLite through `node:sqlite`                                  |
+| Tokenization     | `gpt-tokenizer` (`cl100k_base`)                               |
+| CLI              | `yargs`                                                       |
+| Tests            | Vitest + V8 coverage                                          |
+| Lint / formatting| ESLint + Prettier                                             |
+| CI               | GitHub Actions (install, audit, lint, format, test, build)    |
 
 ## Requirements
 
-- Node.js v22.5.0 or newer.
+- **Node.js 22.13.0 or newer.** `node:sqlite` first became available in Node 22.5.0
+  behind `--experimental-sqlite`; it is unflagged from 22.13.0. This project does not
+  pass the flag.
 - npm.
+- No database server, API key, or external account is required for core tracing.
 
-## Getting started
+## Quick start (MCP client)
 
-Add the following config to your MCP client:
+Add the server to your MCP client configuration:
 
 ```json
 {
@@ -52,7 +85,7 @@ Add the following config to your MCP client:
 }
 ```
 
-To set a custom storage path:
+Use a project-specific database:
 
 ```json
 {
@@ -69,139 +102,308 @@ To set a custom storage path:
 }
 ```
 
-### MCP Client configuration
+Then ask your agent to trace its own work:
 
-Amp · Claude Code · Cline · Cursor · VS Code · Windsurf · Zed
-
-## Your first prompt
-
-Enter the following in your MCP client to verify everything is working:
-
-```
-Start a trace called "test-run", then list the files in the current directory, then end the trace and show me the summary.
+```text
+Start a trace named "test-run" with trace_start.
+Record a trace_step for each tool you call, including that tool's input and output.
+Call trace_end when you are done, then call get_trace_summary for the trace.
 ```
 
-Your client should return a summary showing step count, total tokens, and latency.
+The summary contains the step count, estimated token total, total recorded latency,
+wall-clock duration, cost estimate, and reasoning-chain detection. Tracing is explicit:
+the inspector records steps when the agent calls `trace_step`; it does not intercept
+other MCP servers automatically.
 
-## Tools
+### From source
 
-### Trace lifecycle (3 tools)
+```bash
+npm ci
+npm run build
+node dist/index.js --db=~/.mcp/traces.db
+```
 
-- `trace_start` — begin a new trace; returns a `trace_id` for subsequent calls
-- `trace_step` — record one tool call step (inputs, outputs, optional token count and latency)
-- `trace_end` — mark a trace as completed
+Development mode runs TypeScript directly and logs MCP protocol messages on stderr:
 
-### Inspection (4 tools)
+```bash
+npm run dev -- --db=/tmp/traces.db
+```
 
-- `list_traces` — list stored traces with names, statuses, and timestamps
-- `get_trace_summary` — token totals, step count, latency, and cost estimate for a trace
-- `compare_traces` — diff two traces side by side (step counts, tokens, latency)
-- `extract_reasoning_chain` — extract only reasoning/thinking steps from a trace
+## Streamable HTTP transport
 
-### Export (3 tools)
+HTTP mode is useful for a local team instance or a container. It is **stateless**:
+every POST gets a fresh MCP server and transport, there is no `Mcp-Session-Id`, and the
+endpoint does not offer a server-initiated SSE stream. Send every JSON-RPC message as
+its own `POST /mcp` request.
 
-- `export_dashboard` — generate a self-contained single-file HTML dashboard with latency waterfall
-- `export_otel` — export one or all traces in OpenTelemetry OTLP JSON span format
-- `export_compliance_log` — export the compliance audit log as JSON or CSV, with optional date range filtering
+```bash
+node dist/index.js --db=~/.mcp/traces.db --http-port=3000 --http-host=127.0.0.1
+# stderr: MCP Agent Trace Inspector HTTP server listening on http://127.0.0.1:3000/mcp
+```
 
-### Operations (3 tools)
+Initialize the endpoint:
 
-- `configure_alerts` — configure alert rules on latency, error rate, or cost; fire to Slack or generic webhooks
-- `set_retention_policy` — set how many days to keep traces (in-memory; must be called before `apply_retention`)
-- `apply_retention` — archive traces older than the configured threshold; delete traces past 2x the threshold
+```bash
+curl -s http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+```
+
+The response is an SSE frame. Call a tool:
+
+```bash
+curl -s http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_traces","arguments":{}}}'
+```
+
+| Behavior              | Value                                                        |
+| --------------------- | ------------------------------------------------------------ |
+| Endpoint              | `POST /mcp`                                                  |
+| `GET` / `DELETE /mcp` | `405` with `Allow: POST`                                     |
+| Default bind address  | `127.0.0.1` (loopback only)                                  |
+| Request body limit    | 10 MB                                                        |
+| Rate limit            | 60 requests / 60 s per validated API key or client IP        |
+| Auth (optional)       | `X-API-Key` and/or `Authorization: Bearer <HS256 JWT>`       |
+| DNS-rebinding guard   | Host header must be localhost/127.0.0.1 when bound to loopback |
+
+### HTTP authentication
+
+Set one or both environment variables before starting the server:
+
+```bash
+MCP_API_KEY=change-me \
+MCP_JWT_SECRET=change-me-too \
+node dist/index.js --http-port=3000 --http-host=127.0.0.1
+```
+
+- If `MCP_API_KEY` is set, every HTTP request must send `X-API-Key: <value>`.
+- If `MCP_JWT_SECRET` is set, every HTTP request must send
+  `Authorization: Bearer <HS256 JWT>`; `exp` and `nbf` claims are checked.
+- If both are set, both are required.
+- The stdio transport ignores both variables.
+
+`--http-host=0.0.0.0` is allowed but the server warns. Put TLS and an authenticating
+reverse proxy in front of any non-loopback deployment; do not expose the raw endpoint
+to an untrusted network.
+
+When the server is bound to loopback behind a reverse proxy, the proxy must rewrite the
+`Host` header to `127.0.0.1:<port>`. The loopback DNS-rebinding guard rejects other
+`Host` values with `403` by design.
 
 ## Configuration
 
-### `--db` / `--db-path`
+### CLI flags
 
-Path to the SQLite database file used to store traces.
+| Flag                    | Default              | Description                                                                 |
+| ----------------------- | -------------------- | --------------------------------------------------------------------------- |
+| `--db`, `--db-path`     | `~/.mcp/traces.db`   | SQLite database file. `~` is expanded. `:memory:` is supported for tests.   |
+| `--retention-days`      | `0`                  | On startup, delete traces older than N days. `0` disables.                  |
+| `--pricing-table`       | built-in table       | JSON file of `{ "model": { "input": number, "output": number } }`. Merged over built-in rates. |
+| `--no-token-count`      | `false`              | Disable automatic token counting (`token_count` values become `null`).      |
+| `--http-port`           | unset                | Start in HTTP mode on this port (1–65535) instead of stdio.                 |
+| `--http-host`           | `127.0.0.1`          | HTTP bind address. Prefer loopback unless authentication and TLS are used.  |
+| `--help`                | —                    | Show usage.                                                                 |
+| `--version`             | —                    | Print the package version.                                                  |
 
-Type: `string`
-Default: `~/.mcp/traces.db`
+### Environment variables
 
-### `--retention-days`
+The server does **not** load `.env` files automatically. Export variables in your
+shell or configure them in your MCP client.
 
-Automatically delete traces older than N days. Set to `0` to disable.
+| Variable               | Default                                   | Purpose                                                                 |
+| ---------------------- | ----------------------------------------- | ----------------------------------------------------------------------- |
+| `MCP_API_KEY`          | unset                                     | HTTP only: require `X-API-Key` on every request.                        |
+| `MCP_JWT_SECRET`       | unset                                     | HTTP only: require a valid HS256 Bearer JWT.                            |
+| `MCP_AUDIT_LOG_PATH`   | `~/.mcp/trace-inspector-audit.jsonl`      | Compliance audit log path. Created owner-readable/writable (`0600`).    |
+| `MCP_SLACK_WEBHOOK`    | unset                                     | Slack incoming-webhook URL used when an alert fires.                    |
+| `MCP_ALERT_WEBHOOK`    | unset                                     | Generic JSON webhook URL used when an alert fires.                      |
 
-Type: `number`
-Default: `0`
+See [`.env.example`](.env.example) for a copy-paste template. Never commit real
+secrets or database files; both are ignored by `.gitignore`.
 
-### `--pricing-table`
+## Tools
 
-Path to a JSON file containing custom model pricing ($/1K tokens). Overrides the built-in table.
+The server exposes 13 tools. Tool annotations mark state-changing tools
+(`readOnlyHint: false`) and destructive retention (`destructiveHint: true`).
 
-Type: `string`
+### Trace lifecycle
 
-### `--no-token-count`
+| Tool          | Purpose                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| `trace_start` | Begin a trace. Returns a `trace_id`. Pass `"auto"` or an empty string for a generated name.        |
+| `trace_step`  | Record one step for a **running** trace. Steps are rejected after `trace_end`.                    |
+| `trace_end`   | Mark a trace completed, evaluate alert rules, and return fired alerts. Repeated calls are idempotent. |
 
-Disable tiktoken-based token counting. Traces will omit token usage metrics.
+`trace_step` requires `trace_id`, `tool_name`, `input` (object), and `output` (object).
+`token_count` must be a non-negative integer; `latency_ms` must be a finite,
+non-negative number. Caller-supplied token counts are used as-is.
 
-Type: `boolean`
-Default: `false`
+### Inspection
 
-Pass flags via the `args` property in your JSON config:
+| Tool                      | Purpose                                                                 |
+| ------------------------- | ----------------------------------------------------------------------- |
+| `list_traces`             | List traces, newest first. Optional positive-integer `limit`.            |
+| `get_trace_summary`       | Step/token/latency totals, duration, cost estimate, reasoning detection. |
+| `compare_traces`          | Diff two traces: aggregates, tool coverage, and per-position steps.     |
+| `extract_reasoning_chain` | Return only reasoning/thinking/planning steps.                          |
 
-```json
-{
-  "mcpServers": {
-    "trace-inspector": {
-      "command": "npx",
-      "args": ["-y", "mcp-agent-trace-inspector@latest", "--retention-days=30"]
-    }
-  }
-}
-```
+### Export
 
-## Design principles
+| Tool                   | Purpose                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `export_dashboard`     | Self-contained HTML dashboard with error rows, expandable JSON, and latency waterfall.           |
+| `export_otel`          | OTLP/JSON document (`resourceSpans → scopeSpans → spans`) for one trace or all traces.            |
+| `export_compliance_log`| Audit log as JSON or CSV, optionally filtered by `from_date` / `to_date` (date-only upper bound includes the whole day). |
 
-- **Append-only traces**: Steps are immutable once recorded. Trust requires integrity.
-- **Local-first**: All core functionality works without a network connection.
-- **Portable dashboards**: HTML exports are always single-file; no server required to view them.
+`export_otel` returns a document; it does **not** push to a collector. Write the
+result to a file and submit it with your OTLP tooling, or adapt it in your client.
+Non-UUID trace/step IDs are hashed into valid lowercase 32/16-character hex IDs.
+
+### Operations
+
+| Tool                   | Purpose                                                                                              |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `configure_alerts`     | Persist alert rules (`latency`, `error_rate`, `cost`). Optional Slack/generic webhooks.              |
+| `set_retention_policy` | Set the in-process retention policy (days). Must be called before `apply_retention` in that process. |
+| `apply_retention`      | Archive traces older than N days; delete archived traces older than 2×N days.                       |
+
+## Resources and prompts
+
+- **Resources** — every trace is exposed as `trace://{trace_id}` with trace metadata,
+  totals, and step metadata as JSON.
+- **Prompt** — `analyze-trace` accepts `trace_id` and returns a structured investigation
+  prompt covering performance, errors, reasoning chains, and optimization opportunities.
+
+## Token counting, pricing, and cost
+
+- Automatic counting uses the `cl100k_base` BPE encoding via `gpt-tokenizer`.
+- Payloads up to **128 KiB** are tokenized exactly. Larger automatic payloads use the
+  standard `ceil(characters / 4)` estimate to keep synchronous step recording bounded.
+  Pass `token_count` explicitly if you need an exact count for a large payload.
+- `--no-token-count` disables automatic counting entirely.
+- The built-in pricing table contains Claude Opus/Sonnet/Haiku input and output rates.
+  `--pricing-table` merges over those entries, so a custom file can add a model or
+  override a rate while retaining the defaults.
+- `get_trace_summary` estimates cost from the aggregate token count using the **input**
+  rate. Token counts are not split into input/output categories, so this is an estimate,
+  not a billing figure.
+- The default model is `claude-sonnet-4-6`. Unknown models report `N/A`.
+
+## Retention semantics
+
+There are two related mechanisms:
+
+1. **Startup purge** (`--retention-days=N`) deletes traces whose `started_at` is older
+   than N days, plus their steps. This is irreversible and applied when the process
+   starts.
+2. **Tool policy** (`set_retention_policy` then `apply_retention`) is held in memory for
+   the lifetime of the process. It sets `archived = 1` on traces older than N days and
+   deletes archived traces older than 2×N days, along with their steps. The policy is
+   not persisted across restarts; call `set_retention_policy` again after a restart.
+   Archived traces remain queryable until deleted.
+
+## Alerts
+
+Rules are persisted in the `alert_rules` table and evaluated when `trace_end` runs:
+
+- `latency` — average recorded step latency across all stored traces (ms).
+- `error_rate` — percentage of steps whose output contains `error` or `isError: true`.
+- `cost` — total recorded tokens × the default input rate ($0.003 / 1K tokens).
+
+Metrics are global to the database, not scoped to the just-ended trace. When a rule
+fires, the alert is included in the `trace_end` response (`alerts_fired`, `alerts`) and
+delivered to configured webhooks. Webhook requests time out after 5 seconds and
+failures are logged without failing the tool call. There is no retry or deduplication.
+
+Channel URLs are process configuration, not database rows: pass them to
+`configure_alerts`, or set `MCP_SLACK_WEBHOOK` / `MCP_ALERT_WEBHOOK`. Omitting a URL
+on a later `configure_alerts` call preserves the previously configured channel.
 
 ## Verification
 
-Before publishing a new version, verify the server with MCP Inspector to confirm all tools are exposed correctly and the protocol handshake succeeds.
-
-**Interactive UI** (opens browser):
+Automated checks (no external services required):
 
 ```bash
-npm run build && npm run inspect
+npm ci
+npm run verify          # lint + format check + typecheck + tests
+npm test -- --coverage  # unit/integration tests + V8 coverage
+npm run build           # compile to dist/
+npm run verify:e2e      # build, then run real stdio + HTTP MCP processes
+npm run screenshots     # Chrome/CDP capture of the generated dashboard (set CHROME_PATH if needed)
 ```
 
-**CLI mode** (scripted / CI-friendly):
+`npm run verify:e2e` starts the built server, exercises all 13 tools against a temp
+SQLite database, drives two sequential HTTP requests to prove the stateless transport
+works, checks auth/validation failures, and writes machine-readable evidence under
+`docs/evidence/test-results/`. It does not use a mock transport.
+
+Optional MCP Inspector verification:
 
 ```bash
-# List all tools
-npx @modelcontextprotocol/inspector --cli node dist/index.js --method tools/list
-
-# List resources and prompts
-npx @modelcontextprotocol/inspector --cli node dist/index.js --method resources/list
-npx @modelcontextprotocol/inspector --cli node dist/index.js --method prompts/list
-
-# Call a tool (example — replace with a relevant read-only tool for this plugin)
-npx @modelcontextprotocol/inspector --cli node dist/index.js \
-  --method tools/call --tool-name list_traces
-
-# Call a tool with arguments
-npx @modelcontextprotocol/inspector --cli node dist/index.js \
-  --method tools/call --tool-name list_traces --tool-arg key=value
+npm run build
+npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
-Run before publishing to catch regressions in tool registration and runtime startup.
+### Visual evidence
+
+The dashboard is generated by the real `export_dashboard` tool from a real trace and
+opened in Chrome at desktop and mobile viewport sizes. See
+[the verification report](docs/evidence/verification-report.md) for the commands,
+test results, and per-screenshot workflow associations.
+
+![Desktop dashboard showing the trace timeline, stats, and error row](docs/evidence/screenshots/dashboard-desktop.png)
+
+![Mobile dashboard with responsive stat cards and card-style step timeline](docs/evidence/screenshots/dashboard-mobile.png)
+
+![Dashboard with an error step's input expanded](docs/evidence/screenshots/dashboard-error-step.png)
+
+## Security
+
+Traces contain tool inputs and outputs and may include secrets, prompts, or personal
+data. The inspector stores them locally and does not transmit them except when you
+configure alert webhooks. Review trace contents before sharing HTML exports.
+
+- The default database is `~/.mcp/traces.db`; the audit log is created with mode `0600`.
+- The HTTP server binds to `127.0.0.1` by default. Configure `MCP_API_KEY` and/or
+  `MCP_JWT_SECRET` before binding to a non-loopback address, and use TLS upstream.
+- HTTP request bodies are limited to 10 MB and requests are rate-limited.
+- Do not commit `.env`, `*.db`, `*.db-wal`, or audit logs.
+- Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
+## Known limitations
+
+- **Stateless HTTP only.** There is no session resumption, server-initiated SSE stream,
+  or OAuth 2.0 authorization (yet). GET/DELETE return 405 by design.
+- **Single-node SQLite.** WAL mode supports concurrent local processes, but this is not
+  a distributed trace store.
+- **Token counts are estimates.** They are not a substitute for provider billing, and
+  very large automatic payloads use a chars/4 approximation.
+- **Alerts are evaluated only on `trace_end`** over database-wide metrics, with
+  best-effort webhook delivery and no retry/deduplication.
+- **Retention tool state is in-memory.** `set_retention_policy` must be called after each
+  restart; only the CLI startup purge is automatic.
+- **The dashboard is a file.** There is no hosted dashboard or share link; the HTML is
+  self-contained and can be saved/shared deliberately.
+- **Audit log integrity is append-only by convention**, not cryptographic or
+  tamper-evident.
+- **`node:sqlite` is still evolving** (release candidate in newer Node releases). Pin a
+  Node version in production if API stability is required.
+- **No team sharing, search UI, or SSO.** Those are tracked in [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Run the full local gate before opening a PR:
 
 ```bash
-npm install && npm test
+npm ci
+npm run verify
 ```
 
-## MCP Registry & Marketplace
+Commit messages follow Conventional Commits. One focused change per pull request.
 
-This plugin is available on:
+## License
 
-- [MCP Registry](https://registry.modelcontextprotocol.io)
-- [MCP Market](https://mcpmarket.com)
-
-Search for `mcp-agent-trace-inspector`.
+MIT — see [LICENSE](LICENSE).

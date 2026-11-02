@@ -1,7 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { computeSummary, listTraces } from "../db.js";
-import { DEFAULT_PRICING, estimateCost } from "../pricing.js";
+import {
+  DEFAULT_PRICING,
+  estimateCost,
+  type PricingTable,
+} from "../pricing.js";
 
 export interface GetTraceSummaryArgs {
   trace_id: string;
@@ -55,12 +59,22 @@ function detectReasoningChain(toolNames: string[]): {
 export function handleGetTraceSummary(
   db: DatabaseSync,
   args: GetTraceSummaryArgs,
+  pricing: PricingTable = DEFAULT_PRICING,
 ): { content: Array<{ type: string; text: string }> } {
   const { trace_id, model } = args;
   if (!trace_id || typeof trace_id !== "string") {
     throw new McpError(
       ErrorCode.InvalidParams,
       "trace_id must be a non-empty string",
+    );
+  }
+  if (
+    model !== undefined &&
+    (typeof model !== "string" || model.trim() === "")
+  ) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      "model must be a non-empty string when provided",
     );
   }
 
@@ -82,9 +96,7 @@ export function handleGetTraceSummary(
     // Cost estimation
     const pricingModel = model ?? "claude-sonnet-4-6";
     const estimatedCost =
-      totalTokens > 0
-        ? estimateCost(totalTokens, pricingModel, DEFAULT_PRICING)
-        : null;
+      totalTokens > 0 ? estimateCost(totalTokens, pricingModel, pricing) : null;
 
     // Reasoning chain detection
     const toolNames = steps.map((s) => s.tool_name);
@@ -166,7 +178,13 @@ export function handleListTraces(
 ): { content: Array<{ type: string; text: string }> } {
   const { limit } = args;
 
-  if (limit !== undefined && (typeof limit !== "number" || limit < 1)) {
+  if (
+    limit !== undefined &&
+    (typeof limit !== "number" ||
+      !Number.isFinite(limit) ||
+      !Number.isInteger(limit) ||
+      limit < 1)
+  ) {
     throw new McpError(
       ErrorCode.InvalidParams,
       "limit must be a positive integer",

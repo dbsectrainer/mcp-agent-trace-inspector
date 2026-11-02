@@ -40,17 +40,17 @@ Make traces rich enough to diagnose real bugs in production agent workflows, and
 
 ### MCP Best Practices
 
-- [x] Progress notifications (`notifications/progress`) when generating large dashboard exports
-- [x] Cancellation support (`notifications/cancelled`) — abort a long `export_dashboard` call cleanly
+- [x] Progress notifications (`notifications/progress`) when the client supplies a progress token
+- [ ] Abort `export_dashboard` mid-generation via cancellation (the SDK exposes an `AbortSignal`, but dashboard generation is synchronous and typically completes immediately)
 - [x] MCP logging (`notifications/message`) — emit debug-level events for each step recorded
-- [x] Streamable HTTP transport (MCP 2025 spec) — run the trace server remotely (e.g. shared team instance)
+- [x] Streamable HTTP transport (MCP 2025 spec), stateless mode — run the trace server remotely (e.g. shared team instance)
 - [x] MCP Resources primitive: expose individual traces as browsable resources (`trace://{id}`)
 - [x] MCP Prompts primitive: `analyze-trace` prompt template to guide investigation of a completed trace
 - [x] Tool description strings include parameter examples (improves LLM tool selection)
 
 ### Features
 
-- [x] `export_dashboard` — shareable single-file HTML with interactive step timeline and latency waterfall
+- [x] `export_dashboard` — shareable single-file HTML with interactive step timeline, latency waterfall, and a card-style mobile layout
 - [x] `compare_traces` — diff two traces side by side (before/after a prompt or tool change)
 - [x] Token cost estimation with configurable pricing table (`--pricing-table` flag)
 - [x] Error highlighting — surface failed tool calls and exceptions prominently in the dashboard
@@ -75,13 +75,13 @@ Serve teams that need shared trace history, cross-developer alerting, and compli
 
 - [x] Rate limiting on the HTTP transport (per-client sliding window)
 - [x] API key and JWT authentication for the HTTP transport (`MCP_API_KEY`, `MCP_JWT_SECRET`)
-- [x] Structured trace export in OpenTelemetry format (interop with Jaeger, Grafana Tempo, etc.)
+- [x] Structured trace export as a standard OTLP/JSON document (collector ingestion by Jaeger/Grafana Tempo is not verified in this repository)
 - [x] Multi-transport: stdio for local use, Streamable HTTP for remote/team use (`--http-port`)
 - [ ] OAuth 2.0 authorization (MCP 2025 spec) — not yet implemented
 
 ### Features
 
-- [x] Alerting — notify on latency regression, error rate spike, or cost threshold breach via Slack or generic webhook (`configure_alerts`)
+- [x] Alerting — rules persist in SQLite, are evaluated on `trace_end`, and notify via Slack or generic webhook (`configure_alerts` / `MCP_*_WEBHOOK`)
 - [x] Retention policies — archive/delete traces after N days (`set_retention_policy` + `apply_retention`; also `--retention-days` at startup)
 - [x] Compliance export — append-only JSONL audit trail of every `trace_step` call; export as JSON or CSV with date range filtering (`export_compliance_log`)
 - [x] Webhook integration — push alert events to Slack or generic HTTP endpoints
@@ -95,6 +95,6 @@ Serve teams that need shared trace history, cross-developer alerting, and compli
 
 - **Append-only traces** — steps are never edited after recording; trust requires integrity
 - **Local-first** — all core functionality works without a network connection
-- **Low overhead** — tracing adds <5ms per step; never the bottleneck
+- **Low overhead** — tokenization is bounded; normal steps complete in well under the configured limits, and `--no-token-count` is available for large payloads
 - **Portable dashboards** — HTML exports are always single-file; no server required to view them
 - **MCP-native** — uses MCP Resources and Prompts primitives where they add value, not just Tools

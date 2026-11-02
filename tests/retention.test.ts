@@ -52,8 +52,7 @@ function getTrace(
   id: string,
 ): { id: string; archived: number } | undefined {
   return db.prepare("SELECT id, archived FROM traces WHERE id = ?").get(id) as
-    | { id: string; archived: number }
-    | undefined;
+    { id: string; archived: number } | undefined;
 }
 
 describe("applyRetentionPolicy", () => {

@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { insertTrace, endTrace, insertStep } from "../src/db.js";
-import { exportToOTLP, exportAllOTLP } from "../src/otel-exporter.js";
+import {
+  exportToOTLP,
+  exportAllOTLP,
+  exportOtlpDocument,
+} from "../src/otel-exporter.js";
 
 function createTestDb(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -173,5 +177,74 @@ describe("exportAllOTLP", () => {
     expect(names).toContain("Trace One");
     expect(names).toContain("Trace Two");
     expect(names).toContain("Trace Three");
+  });
+});
+
+describe("exportOtlpDocument", () => {
+  let db: DatabaseSync;
+
+  beforeEach(() => {
+    db = createTestDb();
+  });
+
+  it("returns a standard OTLP/JSON document", () => {
+    insertTrace(db, TRACE_UUID_1, "Document Trace");
+    insertStep(db, {
+      id: STEP_UUID_A,
+      trace_id: TRACE_UUID_1,
+      tool_name: "web_search",
+      input_json: "{}",
+      output_json: JSON.stringify({ ok: true }),
+      token_count: 100,
+      latency_ms: 200,
+    });
+
+    const document = exportOtlpDocument(db, TRACE_UUID_1);
+    expect(document.resourceSpans).toHaveLength(1);
+
+    const resourceSpan = document.resourceSpans[0];
+    const resourceKeys = resourceSpan.resource.attributes.map((a) => a.key);
+    expect(resourceKeys).toContain("service.name");
+    expect(resourceKeys).toContain("service.version");
+
+    const spans = resourceSpan.scopeSpans[0].spans;
+    expect(spans).toHaveLength(2);
+
+    const root = spans.find((s) => s.name === "Document Trace");
+    const step = spans.find((s) => s.name === "web_search");
+    expect(root).toBeDefined();
+    expect(step).toBeDefined();
+    expect(root!.kind).toBe(1);
+    expect(step!.parentSpanId).toBe(root!.spanId);
+    expect(
+      step!.attributes.find((a) => a.key === "step.token_count")?.value,
+    ).toEqual({ intValue: "100" });
+    expect(step!.status.code).toBe(1);
+  });
+
+  it("marks a running trace root span with unset status", () => {
+    insertTrace(db, TRACE_UUID_2, "Running Trace");
+    const document = exportOtlpDocument(db, TRACE_UUID_2);
+    const root = document.resourceSpans[0].scopeSpans[0].spans[0];
+    expect(root.status.code).toBe(0);
+  });
+
+  it("exports all traces when no trace_id is supplied", () => {
+    insertTrace(db, "trace-one", "Trace One");
+    insertTrace(db, "trace-two", "Trace Two");
+    const document = exportOtlpDocument(db);
+    const spans = document.resourceSpans[0].scopeSpans[0].spans;
+    expect(spans).toHaveLength(2);
+    expect(spans.map((s) => s.name)).toEqual(
+      expect.arrayContaining(["Trace One", "Trace Two"]),
+    );
+  });
+
+  it("hashes non-hex identifiers into valid lowercase hex IDs", () => {
+    insertTrace(db, "not-a-uuid", "Hashed ID Trace");
+    const document = exportOtlpDocument(db, "not-a-uuid");
+    const root = document.resourceSpans[0].scopeSpans[0].spans[0];
+    expect(root.traceId).toMatch(/^[0-9a-f]{32}$/);
+    expect(root.spanId).toMatch(/^[0-9a-f]{16}$/);
   });
 });

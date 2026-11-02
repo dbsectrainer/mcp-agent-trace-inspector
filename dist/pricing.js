@@ -21,8 +21,18 @@ export function loadPricingTable(filePath) {
                 typeof pricing.output !== "number") {
                 throw new Error(`Invalid pricing entry for model "${model}": must have numeric input and output fields`);
             }
+            const entry = pricing;
+            if (!Number.isFinite(entry.input) ||
+                !Number.isFinite(entry.output) ||
+                entry.input < 0 ||
+                entry.output < 0) {
+                throw new Error(`Invalid pricing entry for model "${model}": input and output must be finite, non-negative numbers`);
+            }
         }
-        return table;
+        // Treat the custom file as an override layer: models it does not mention
+        // keep their built-in rates. This avoids silently disabling cost
+        // estimation (and audit cost) for the default model.
+        return { ...DEFAULT_PRICING, ...table };
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);

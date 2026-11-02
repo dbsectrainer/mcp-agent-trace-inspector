@@ -17,11 +17,18 @@
       },
       "environmentVariables": [
         {
-          "description": "Your API key for the service",
-          "isRequired": true,
+          "description": "Optional API key for the Streamable HTTP transport (stdio does not require it).",
+          "isRequired": false,
           "format": "string",
           "isSecret": true,
-          "name": "YOUR_API_KEY"
+          "name": "MCP_API_KEY"
+        },
+        {
+          "description": "Optional HMAC-SHA256 secret for Bearer JWTs on the Streamable HTTP transport.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true,
+          "name": "MCP_JWT_SECRET"
         }
       ]
     }

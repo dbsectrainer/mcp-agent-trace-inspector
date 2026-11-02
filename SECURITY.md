@@ -27,7 +27,15 @@ You can expect an initial response within **72 hours** and a resolution or statu
 
 `mcp-agent-trace-inspector` stores tool call inputs and outputs in a local SQLite database. Traces may contain sensitive data passed to or returned from your tools:
 
-- Review trace contents before sharing or exporting dashboard files.
+- Review trace contents before sharing or exporting dashboard files or OTLP/JSON.
 - Restrict file-system permissions on the database file (`~/.mcp/traces.db` by default).
-- Use `--retention-days` to automatically purge old traces.
-- Traces are never transmitted externally by this package.
+  The compliance audit log is created with mode `0600`; the database inherits the
+  process umask.
+- Use `--retention-days` to automatically purge old traces at startup.
+- Traces are never transmitted externally by this package unless you configure alert
+  webhooks (`MCP_SLACK_WEBHOOK` / `MCP_ALERT_WEBHOOK`) or explicitly export data.
+- The HTTP transport binds to `127.0.0.1` by default. If you bind to another interface,
+  configure `MCP_API_KEY` and/or `MCP_JWT_SECRET` and put TLS in front of it. The
+  loopback mode rejects unexpected `Host` headers to mitigate DNS rebinding.
+- HTTP bodies are limited to 10 MB and requests are rate-limited (60/minute per
+  validated API key or client IP).

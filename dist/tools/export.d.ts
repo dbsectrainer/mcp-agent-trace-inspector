@@ -3,7 +3,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 export interface ExportDashboardArgs {
     trace_id: string;
 }
-export declare function handleExportDashboard(db: DatabaseSync, args: ExportDashboardArgs, server?: Server): Promise<{
+export declare function handleExportDashboard(db: DatabaseSync, args: ExportDashboardArgs, server?: Server, progressToken?: string | number): Promise<{
     content: Array<{
         type: string;
         text: string;
